@@ -1,0 +1,23 @@
+# Rust
+target/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+dist/
+*.egg-info/
+
+# Node / Vue
+node_modules/
+frontend/dist/
+
+# Data
+*.mcap
+
+# Env
+.env
+
+# IDE
+.idea/
+.vscode/
