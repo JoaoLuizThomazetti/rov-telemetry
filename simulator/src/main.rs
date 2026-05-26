@@ -1,7 +1,12 @@
-use serde::{Deserialize, Serialize};
+use std::fs::File;
+use std::io::BufWriter;
+use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
+
 use tokio::time::Duration;
 use zenoh::config::Config;
+use mcap::records::MessageHeader;
+use serde::{Deserialize, Serialize};
 
 
 #[derive(Serialize, Deserialize)]
@@ -65,7 +70,45 @@ fn simulate_position(t: f64) -> GlobalPosition {
         timestamp_us: now_us(),
     }
 }
- 
+
+
+fn setup_mcap() -> anyhow::Result<(mcap::Writer<BufWriter<File>>, u16, u16, u16)> {
+    let file = File::create("recording.mcap")?;
+    let mut writer = mcap::Writer::new(BufWriter::new(file))?;
+
+    let sch_hb  = writer.add_schema("heartbeat", "jsonschema", b"{}")?;
+    let sch_att = writer.add_schema("attitude",  "jsonschema", b"{}")?;
+    let sch_pos = writer.add_schema("position",  "jsonschema", b"{}")?;
+
+    let metadata = BTreeMap::new();
+
+    let ch_hb  = writer.add_channel(sch_hb,  "rov/heartbeat", "json", &metadata)?;
+    let ch_att = writer.add_channel(sch_att, "rov/attitude",  "json", &metadata)?;
+    let ch_pos = writer.add_channel(sch_pos, "rov/position",  "json", &metadata)?;
+
+    Ok(( writer, ch_hb, ch_att, ch_pos ))
+}
+
+
+fn write_mcap<T: serde::Serialize>(
+    writer: &mut mcap::Writer<BufWriter<File>>,
+    ch: u16,
+    seq: u32,
+    data: &T
+) -> anyhow::Result<()> {
+    writer.write_to_known_channel(
+        &MessageHeader {
+            channel_id: ch,
+            sequence: seq,
+            log_time: now_us() * 1000,
+            publish_time: now_us() * 1000,
+        },
+        &serde_json::to_vec(data)?,
+    )?;
+    Ok(())
+}
+
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()>{
 
@@ -80,15 +123,34 @@ async fn main() -> anyhow::Result<()>{
 
     let start = tokio::time::Instant::now();
 
-    loop {
-        tokio::time::sleep(Duration::from_millis(100)).await;
-        let t = start.elapsed().as_secs_f64();
+    let ( mut writer, ch_hb, ch_att, ch_pos ) = setup_mcap()?;
+    let mut sequence: u32 = 0;
 
-        pub_heartbeat.put(serde_json::to_string(&heartbeat())?)
-            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        pub_attitude.put(serde_json::to_string(&simulate_attitude(t))?)
-            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-        pub_position.put(serde_json::to_string(&simulate_position(t))?)
-            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    loop {
+        tokio::select! {
+          _ = tokio::signal::ctrl_c() => break,
+          _ = tokio::time::sleep(Duration::from_millis(100)) => {
+            let t = start.elapsed().as_secs_f64();
+
+            let hb_data: Heartbeat = heartbeat();
+            pub_heartbeat.put(serde_json::to_string(&hb_data)?)
+                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            write_mcap(&mut writer, ch_hb, sequence, &hb_data)?;
+
+            let att_data: Attitude = simulate_attitude(t);
+            pub_attitude.put(serde_json::to_string(&att_data)?)
+                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            write_mcap(&mut writer, ch_att, sequence, &att_data)?;
+
+            let pos_data: GlobalPosition = simulate_position(t);
+            pub_position.put(serde_json::to_string(&pos_data)?)
+                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+            write_mcap(&mut writer, ch_pos, sequence, &pos_data)?;
+
+            sequence += 1;
+          }
+        }
     }
+    writer.finish()?;
+    Ok(())
 }
