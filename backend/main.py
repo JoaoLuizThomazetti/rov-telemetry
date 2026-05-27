@@ -45,7 +45,10 @@ def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop):
     session = app.state.zenoh_session
 
     def on_message(sample):
-        payload = bytes(sample.payload).decode("utf-8")
+        payload = json.dumps({
+            "topic": str(sample.key_expr),
+            "data": json.loads(bytes(sample.payload).decode("utf-8")),
+        })
         asyncio.run_coroutine_threadsafe(
             broadcast(app.state.ws_clients, payload),
             loop
