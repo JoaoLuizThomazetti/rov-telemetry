@@ -8,8 +8,12 @@ from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
-from mcap.reader import make_reader
+from mcap.reader import NonSeekingReader
 from pydantic import BaseModel
+
+
+# MCAP_PATH = "data"
+MCAP_PATH = "../simulator"
 
 
 class McapMessage(BaseModel):
@@ -18,22 +22,25 @@ class McapMessage(BaseModel):
     data: dict
 
 
-def read_mcap(path, limit: int = 1000) -> list[McapMessage]:
-    with open(path, "rb") as f:
-        reader = make_reader(f)
-        messages = []
-        for schema, channel, message in reader.iter_messages():
-            if len(messages) >= limit:
-                break
-            try:
-                messages.append(McapMessage(
-                    topic=channel.topic,
-                    timestamp_us=message.log_time // 1000,
-                    data=json.loads(message.data.decode("utf-8")),
-                ))
-            except Exception as e:
-                print(f"erro ao parsear mensagem: {e}")
-    return messages
+def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
+      messages = []
+      try:
+          with open(path, "rb") as f:
+              reader = NonSeekingReader(f)
+              for schema, channel, message in reader.iter_messages():
+                  if len(messages) >= limit:
+                      break
+                  try:
+                      messages.append(McapMessage(
+                          topic=channel.topic,
+                          timestamp_us=message.log_time // 1000,
+                          data=json.loads(message.data.decode("utf-8")),
+                      ))
+                  except Exception:
+                      pass
+      except Exception:
+          pass
+      return messages
 
 
 async def broadcast(ws_clients: set[WebSocket], payload: str):
@@ -66,7 +73,7 @@ async def lifespan(app: FastAPI):
 
     app.state.zenoh_session = session
     app.state.ws_clients = set()
-    app.state.mcap_dir = Path("data")
+    app.state.mcap_dir = Path(MCAP_PATH)
 
     thread = threading.Thread(
         target=subscriber,
@@ -105,7 +112,7 @@ async def get_mcap_messages(request: Request, file: str = Query(...), limit: int
     if not mcap_dir.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
     try:
-        messages = await asyncio.get_running_loop().run_in_executor(None, read_mcap, mcap_dir)
+        messages = await asyncio.get_running_loop().run_in_executor(None, read_mcap, mcap_dir, limit)
         return messages
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
