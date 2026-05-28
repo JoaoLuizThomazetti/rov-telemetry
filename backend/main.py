@@ -101,18 +101,19 @@ async def get_mcap_files(request: Request) -> list[str]:
 
 @app.get("/mcap/messages")
 async def get_mcap_messages(request: Request, file: str = Query(...), limit: int = Query(default=1000, le=10000)) -> list[McapMessage]:
-    mcap_dir = request.app.state.mcap_dir / file
-    if not mcap_dir.resolve().is_relative_to(mcap_dir.resolve()):
+    mcap_dir = request.app.state.mcap_dir
+    file_path = (mcap_dir / file).resolve()
+    if not file_path.is_relative_to(mcap_dir.resolve()):
         raise HTTPException(status_code=400, detail="Invalid path")
     if not file.endswith(".mcap"):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="File must be .mcap"
         )
-    if not mcap_dir.exists():
+    if not file_path.exists():
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
     try:
-        messages = await asyncio.get_running_loop().run_in_executor(None, read_mcap, mcap_dir, limit)
+        messages = await asyncio.get_running_loop().run_in_executor(None, read_mcap, file_path, limit)
         return messages
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
