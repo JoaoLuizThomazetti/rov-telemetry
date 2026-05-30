@@ -115,8 +115,6 @@ fn write_mcap<T: serde::Serialize>(
 #[tokio::main]
 async fn main() -> anyhow::Result<()>{
 
-    let session = zenoh::open(Config::default()).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-    
     let connect = std::env::var("ZENOH_CONNECT")
         .unwrap_or_else(|_| "tcp/localhost:7447".to_string());
     let config = zenoh::Config::from_json5(&format!(
