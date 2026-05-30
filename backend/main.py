@@ -1,3 +1,4 @@
+import os
 import asyncio
 import zenoh
 import time
@@ -12,8 +13,7 @@ from mcap.reader import NonSeekingReader
 from pydantic import BaseModel
 
 
-# MCAP_PATH = "data"
-MCAP_PATH = "../simulator"
+MCAP_DIR = Path(os.environ.get("MCAP_DIR", "."))
 
 
 class McapMessage(BaseModel):
@@ -69,11 +69,16 @@ def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop):
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     loop = asyncio.get_running_loop()
-    session = zenoh.open(zenoh.Config())
+
+    connect = os.environ.get("ZENOH_CONNECT", "tcp/localhost:7447")
+    config = zenoh.Config()
+    config.insert_json5("mode", '"client"')
+    config.insert_json5("connect/endpoints", f'["{connect}"]')
+    session = zenoh.open(config)
 
     app.state.zenoh_session = session
     app.state.ws_clients = set()
-    app.state.mcap_dir = Path(MCAP_PATH)
+    app.state.mcap_dir = Path(MCAP_DIR)
 
     thread = threading.Thread(
         target=subscriber,
@@ -89,17 +94,17 @@ async def lifespan(app: FastAPI):
         await client.close(code=1001)
 
 
-app = FastAPI(lifespan=lifespan)
+app = FastAPI(lifespan=lifespan, root_path="/mcap")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-@app.get("/mcap/files")
+@app.get("/files")
 async def get_mcap_files(request: Request) -> list[str]:
     mcap_dir = request.app.state.mcap_dir
     return [f.name for f in mcap_dir.glob("*.mcap")]
 
 
-@app.get("/mcap/messages")
+@app.get("/messages")
 async def get_mcap_messages(request: Request, file: str = Query(...), limit: int = Query(default=1000, le=10000)) -> list[McapMessage]:
     mcap_dir = request.app.state.mcap_dir
     file_path = (mcap_dir / file).resolve()

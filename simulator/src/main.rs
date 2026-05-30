@@ -73,7 +73,10 @@ fn simulate_position(t: f64) -> GlobalPosition {
 
 
 fn setup_mcap() -> anyhow::Result<(mcap::Writer<BufWriter<File>>, u16, u16, u16)> {
-    let file = File::create("recording.mcap")?;
+    let mcap_dir = std::env::var("MCAP_DIR").unwrap_or_else(|_| ".".to_string());
+    let path = format!("{}/recording.mcap", mcap_dir);
+    let file = File::create(&path)?;
+
     let mut writer = mcap::Writer::new(BufWriter::new(file))?;
 
     let sch_hb  = writer.add_schema("heartbeat", "jsonschema", b"{}")?;
@@ -113,6 +116,13 @@ fn write_mcap<T: serde::Serialize>(
 async fn main() -> anyhow::Result<()>{
 
     let session = zenoh::open(Config::default()).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    
+    let connect = std::env::var("ZENOH_CONNECT")
+        .unwrap_or_else(|_| "tcp/localhost:7447".to_string());
+    let config = zenoh::Config::from_json5(&format!(
+        r#"{{"mode":"client","connect":{{"endpoints":["{connect}"]}}}}"#
+    )).map_err(|e| anyhow::anyhow!("{e}"))?;
+    let session = zenoh::open(config).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let pub_heartbeat = session.declare_publisher("rov/heartbeat")
         .await.map_err(|e| anyhow::anyhow!("{e}"))?;
@@ -147,7 +157,7 @@ async fn main() -> anyhow::Result<()>{
                 .await.map_err(|e| anyhow::anyhow!("{e}"))?;
             write_mcap(&mut writer, ch_pos, sequence, &pos_data)?;
 
-            sequence += 1;
+            sequence = sequence.wrapping_add(1)
           }
         }
     }
