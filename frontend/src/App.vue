@@ -3,7 +3,7 @@ import { ref, computed } from 'vue'
 import { useWebSocket } from './composables/useWebSocket.ts'
 import { useMcapReplay } from './composables/useMcapReplay.ts'
 
-const ws = useWebSocket('ws://localhost:8000/ws/live')
+const ws = useWebSocket(`ws://${window.location.host}/ws/live`)
 const { files, selectedFile, currentTime, minTime, maxTime,
           heartbeat: replayHeartbeat, attitude: replayAttitude, position: replayPosition } = useMcapReplay()
 

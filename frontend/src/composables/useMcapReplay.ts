@@ -35,13 +35,13 @@ export function useMcapReplay() {
     )
 
     onMounted(async () => { 
-        const response = await fetch('http://localhost:8000/mcap/files')
+        const response = await fetch('/mcap/files')
         if (!response.ok) throw new Error(`${response.status}`)
         files.value = await response.json()
     })
 
     watch(selectedFile, async () => {
-        const response = await fetch(`http://localhost:8000/mcap/messages?file=${selectedFile.value}&limit=100`)
+        const response = await fetch(`/mcap/messages?file=${selectedFile.value}&limit=100`)
         if (!response.ok) throw new Error(`${response.status}`)
         messages.value = await response.json()
         currentTime.value = minTime.value = messages.value[0]?.timestamp_us ?? 0
