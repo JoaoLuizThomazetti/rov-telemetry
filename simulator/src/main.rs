@@ -1,12 +1,11 @@
 use std::fs::File;
 use std::io::BufWriter;
-use std::collections::BTreeMap;
 use std::time::{SystemTime, UNIX_EPOCH};
-
 use tokio::time::Duration;
-use zenoh::config::Config;
+use std::collections::BTreeMap;
 use mcap::records::MessageHeader;
 use serde::{Deserialize, Serialize};
+use chrono::Local;
 
 
 #[derive(Serialize, Deserialize)]
@@ -74,7 +73,8 @@ fn simulate_position(t: f64) -> GlobalPosition {
 
 fn setup_mcap() -> anyhow::Result<(mcap::Writer<BufWriter<File>>, u16, u16, u16)> {
     let mcap_dir = std::env::var("MCAP_DIR").unwrap_or_else(|_| ".".to_string());
-    let path = format!("{}/recording.mcap", mcap_dir);
+    let date = Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
+    let path = format!("{}/recording_{}.mcap", mcap_dir, date);
     let file = File::create(&path)?;
 
     let mut writer = mcap::Writer::new(BufWriter::new(file))?;
