@@ -15,7 +15,7 @@ export interface Attitude {
     roll: number
     pitch: number
     yaw: number
-timestamp_us: number
+    timestamp_us: number
 }
 
 export interface GlobalPosition {
@@ -30,7 +30,7 @@ export function useWebSocket(url: string) {
     const heartbeat = ref<Heartbeat | null >(null)
     const attitude  = ref<Attitude | null>(null)
     const position  = ref<GlobalPosition | null>(null)
-    const connected = ref(false)
+    const connected = ref<boolean>(false)
 
     let ws: WebSocket | null = null
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null
