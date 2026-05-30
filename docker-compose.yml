@@ -1,0 +1,33 @@
+services:
+  zenoh-router:
+    image: eclipse/zenoh:latest
+    networks: [rov-net]
+
+  simulator:
+    build: ./simulator
+    volumes: [mcap_data:/data]
+    environment:
+      - ZENOH_CONNECT=tcp/zenoh-router:7447
+    networks: [rov-net]
+    depends_on: [zenoh-router]
+
+  backend:
+    build: ./backend
+    volumes: [mcap_data:/data]
+    environment:
+      - MCAP_DIR=/data
+      - ZENOH_CONNECT=tcp/zenoh-router:7447
+    networks: [rov-net]
+    depends_on: [zenoh-router]
+
+  frontend:
+    build: ./frontend
+    ports: ["80:80"]
+    networks: [rov-net]
+    depends_on: [backend]
+
+networks:
+  rov-net:
+
+volumes:
+  mcap_data:
