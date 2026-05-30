@@ -56,44 +56,68 @@ def fake_mcap(path: Path) -> dict:
     )
 
 
-def test_files_without_mcap(client, tmp_path):
+# ======== get all files
+def test_get_files_without_mcap(client, tmp_path):
     response = client.get("/mcap/files")
     assert response.status_code == 200
     assert response.json() == []
 
 
-def test_files_with_mcap(client, tmp_path): 
-    (tmp_path / "test.mcap").touch()
+def test_get_files_with_mcap(client, tmp_path): 
+    fake_mcap(tmp_path / "test.mcap")
     response = client.get("/mcap/files")
     assert response.status_code == 200
     assert response.json() == ["test.mcap"]
 
 
-def test_messages_invalid_path(client, tmp_path):
-    response = client.get("/mcap/messages?file=../pass/test.mcap")
-    assert response.status_code == 400
-    assert response.json()["detail"] == "Invalid path"
+# ======== download file by name
+def test_get_file(client, tmp_path): 
+    fake_mcap(tmp_path / "test.mcap")
+    response = client.get("/mcap/files/test.mcap")
+    assert response.status_code == 200
+    assert response.headers["content-disposition"] == 'attachment; filename="test.mcap"'
+    assert response.headers["content-type"] == "application/octet-stream"
+    assert len(response.content) > 0
 
 
-def test_messages_invalid_ext(client, tmp_path):
-    response = client.get("/mcap/messages?file=test.mp4")
+# ======== upload file
+def test_post_file(client, tmp_path): 
+    fake_mcap(tmp_path / "test.mcap")
+    with open(tmp_path / "test.mcap", "rb") as f:
+        response = client.post("/mcap/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
+    assert response.status_code == 200
+    assert response.json() == {"filename": "testcopy.mcap"}
+
+
+# ======== delete file
+def test_del_file(client, tmp_path): 
+    fake_mcap(tmp_path / "test.mcap")
+    response = client.delete("/mcap/files/test.mcap")
+    assert response.status_code == 204
+    assert not (tmp_path / "test.mcap").exists()
+
+
+# ======== get messages
+def test_get_messages_invalid_ext(client, tmp_path):
+    response = client.get("/mcap/messages/test.mp4")
     assert response.status_code == 400
     assert response.json()["detail"] == "File must be .mcap"
 
 
-def test_messages_file_not_found(client, tmp_path):
-    response = client.get("/mcap/messages?file=test.mcap")
+def test_get_messages_file_not_found(client, tmp_path):
+    response = client.get("/mcap/messages/test.mcap")
     assert response.status_code == 404
     assert response.json()["detail"] == "File not found"
 
 
-def test_messages_reading_mcap(client, tmp_path):
+def test_get_messages_reading_mcap(client, tmp_path):
     payload = fake_mcap(tmp_path / "test.mcap")
-    response = client.get("/mcap/messages?file=test.mcap")
+    response = client.get("/mcap/messages/test.mcap")
     assert response.status_code == 200
     assert response.json() == [payload]
 
 
+# ======== websocket connect
 def test_websocket_connects(client):
     with client.websocket_connect("/ws/live") as ws:
         pass

@@ -4,7 +4,19 @@ import zenoh
 import time
 import json
 import threading
-from fastapi import FastAPI, WebSocket, Request, Query, HTTPException, status
+import shutil
+from fastapi import (
+    FastAPI,
+    WebSocket,
+    Request,
+    Response,
+    Query,
+    HTTPException,
+    status,
+    UploadFile,
+    File
+)
+from fastapi.responses import FileResponse
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -23,29 +35,26 @@ class McapMessage(BaseModel):
 
 
 def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
-      messages = []
-      try:
-          with open(path, "rb") as f:
-              reader = NonSeekingReader(f)
-              for schema, channel, message in reader.iter_messages():
-                  if len(messages) >= limit:
-                      break
-                  try:
-                      messages.append(McapMessage(
-                          topic=channel.topic,
-                          timestamp_us=message.log_time // 1000,
-                          data=json.loads(message.data.decode("utf-8")),
-                      ))
-                  except Exception:
-                      pass
-      except Exception:
-          pass
-      return messages
+    messages = []
+    with open(path, "rb") as f:
+        reader = NonSeekingReader(f)
+        for schema, channel, message in reader.iter_messages():
+            if len(messages) >= limit:
+                break
+            messages.append(McapMessage(
+                topic=channel.topic,
+                timestamp_us=message.log_time // 1000,
+                data=json.loads(message.data.decode("utf-8")),
+            ))
+    return messages
 
 
 async def broadcast(ws_clients: set[WebSocket], payload: str):
     for client in set(ws_clients):
-        await client.send_text(payload)
+        try:
+            await client.send_text(payload)
+        except Exception:
+            ws_clients.discard(client)
 
 
 def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop):
@@ -64,6 +73,19 @@ def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop):
     session.declare_subscriber("rov/**", on_message)
     while True:
         time.sleep(1)
+
+
+async def check_file(mcap_dir: Path, file_name: str, is_upload: bool = False):
+    if not file_name.endswith(".mcap"):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be .mcap")
+    if not (mcap_dir / file_name).resolve().is_relative_to(mcap_dir.resolve()):
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Invalid path")
+    if is_upload:
+        if (mcap_dir / file_name).resolve().exists():
+            raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail="File already exists")
+    else:
+        if not (mcap_dir / file_name).resolve().exists():
+            raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
 
 
 @asynccontextmanager
@@ -101,26 +123,59 @@ app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], all
 @app.get("/files")
 async def get_mcap_files(request: Request) -> list[str]:
     mcap_dir = request.app.state.mcap_dir
-    return [f.name for f in mcap_dir.glob("*.mcap")]
+    available_files = []
+    for file_path in mcap_dir.glob("*.mcap"):
+        try:
+            read_mcap(file_path, 1)
+            available_files.append(file_path.name)
+        except Exception as e:
+            print(f"Cant read file {file_path.name}: {e}")
+    return available_files
 
 
-@app.get("/messages")
-async def get_mcap_messages(request: Request, file: str = Query(...), limit: int = Query(default=1000, le=10000)) -> list[McapMessage]:
+@app.get("/files/{file_name}")
+async def get_mcap_file(request: Request, file_name: str):
     mcap_dir = request.app.state.mcap_dir
-    file_path = (mcap_dir / file).resolve()
-    if not file_path.is_relative_to(mcap_dir.resolve()):
-        raise HTTPException(status_code=400, detail="Invalid path")
-    if not file.endswith(".mcap"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="File must be .mcap"
-        )
-    if not file_path.exists():
-        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="File not found")
+    await check_file(mcap_dir, file_name)
+    return FileResponse(
+        path=(mcap_dir / file_name).resolve(),
+        filename=file_name,
+        media_type="application/octet-stream"
+    )
+
+
+@app.post("/files")
+async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> dict:
+    mcap_dir = request.app.state.mcap_dir
+    await check_file(mcap_dir, file.filename, True)
+    file_path = mcap_dir / file.filename
+    with open(file_path, "wb") as f:
+        shutil.copyfileobj(file.file, f)
     try:
-        messages = await asyncio.get_running_loop().run_in_executor(None, read_mcap, file_path, limit)
+        read_mcap(file_path, 1)
+    except Exception:
+        file_path.unlink()
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid or corrupted mcap file")
+    return { "filename": file.filename }
+
+
+@app.delete("/files/{file_name}")
+async def del_mcap_file(request: Request, file_name: str) -> None:
+    mcap_dir = request.app.state.mcap_dir
+    await check_file(mcap_dir, file_name)
+    (mcap_dir / file_name).resolve().unlink()
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@app.get("/messages/{file_name}")
+async def get_mcap_messages(request: Request, file_name: str, limit: int = Query(default=1000)) -> list[McapMessage]:
+    mcap_dir = request.app.state.mcap_dir
+    await check_file(mcap_dir, file_name)
+    try:
+        messages = await asyncio.get_running_loop().run_in_executor(None, read_mcap, (mcap_dir / file_name).resolve(), limit)
         return messages
     except Exception as e:
+        print(f"Cant read file {file_name}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
