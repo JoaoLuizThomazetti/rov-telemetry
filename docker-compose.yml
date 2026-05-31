@@ -11,6 +11,14 @@ services:
     networks: [rov-net]
     depends_on: [zenoh-router]
 
+  recorder:
+    build: ./recorder
+    volumes: [mcap_data:/data]
+    environment:
+      - ZENOH_CONNECT=tcp/zenoh-router:7447
+    networks: [rov-net]
+    depends_on: [zenoh-router]
+
   backend:
     build: ./backend
     volumes: [mcap_data:/data]

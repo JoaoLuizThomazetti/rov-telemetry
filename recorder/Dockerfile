@@ -5,5 +5,5 @@ RUN cargo build --release
 
 FROM debian:bookworm-slim
 WORKDIR /data
-COPY --from=builder /app/target/release/simulator /usr/local/bin/simulator
-CMD ["simulator"]
+COPY --from=builder /app/target/release/recorder /usr/local/bin/recorder
+CMD ["recorder"]

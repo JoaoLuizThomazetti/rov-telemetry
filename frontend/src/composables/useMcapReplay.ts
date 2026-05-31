@@ -153,6 +153,7 @@ export function useMcapReplay() {
         downloadFile,
         uploadFile,
         deleteFile,
-        fetchFile
+        fetchFile,
+        fetchFiles
     }
 }
