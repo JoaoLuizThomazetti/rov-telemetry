@@ -5,5 +5,5 @@ RUN cargo build --release
 
 FROM debian:bookworm-slim
 WORKDIR /data
-COPY --from=builder /app/target/release/rov-simulator /usr/local/bin/rov-simulator
-CMD ["rov-simulator"]
+COPY --from=builder /app/target/release/simulator /usr/local/bin/simulator
+CMD ["simulator"]

@@ -1,12 +1,7 @@
-use std::fs::File;
-use std::io::BufWriter;
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::Duration;
-use tokio::signal::unix::{signal, SignalKind};
-use std::collections::BTreeMap;
-use mcap::records::MessageHeader;
 use serde::{Deserialize, Serialize};
-use chrono::Local;
+use std::time::{SystemTime, UNIX_EPOCH};
+use tokio::signal::unix::{signal, SignalKind};
 
 
 #[derive(Serialize, Deserialize)]
@@ -16,6 +11,7 @@ struct Heartbeat {
     timestamp_us: u64,
 }
 
+
 #[derive(Serialize, Deserialize)]
 struct Attitude {
     roll: f64,
@@ -23,6 +19,7 @@ struct Attitude {
     yaw: f64,
     timestamp_us: u64,
 }
+
 
 #[derive(Serialize, Deserialize)]
 struct GlobalPosition {
@@ -72,69 +69,21 @@ fn simulate_position(t: f64) -> GlobalPosition {
 }
 
 
-fn setup_mcap() -> anyhow::Result<(mcap::Writer<BufWriter<File>>, u16, u16, u16)> {
-    let mcap_dir = std::env::var("MCAP_DIR").unwrap_or_else(|_| ".".to_string());
-    let date = Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
-    let path = format!("{}/recording_{}.mcap", mcap_dir, date);
-    let file = File::create(&path)?;
-
-    let mut writer = mcap::Writer::new(BufWriter::new(file))?;
-
-    let sch_hb  = writer.add_schema("heartbeat", "jsonschema", b"{}")?;
-    let sch_att = writer.add_schema("attitude",  "jsonschema", b"{}")?;
-    let sch_pos = writer.add_schema("position",  "jsonschema", b"{}")?;
-
-    let metadata = BTreeMap::new();
-
-    let ch_hb  = writer.add_channel(sch_hb,  "rov/heartbeat", "json", &metadata)?;
-    let ch_att = writer.add_channel(sch_att, "rov/attitude",  "json", &metadata)?;
-    let ch_pos = writer.add_channel(sch_pos, "rov/position",  "json", &metadata)?;
-
-    Ok(( writer, ch_hb, ch_att, ch_pos ))
-}
-
-
-fn write_mcap<T: serde::Serialize>(
-    writer: &mut mcap::Writer<BufWriter<File>>,
-    ch: u16,
-    seq: u32,
-    data: &T
-) -> anyhow::Result<()> {
-    writer.write_to_known_channel(
-        &MessageHeader {
-            channel_id: ch,
-            sequence: seq,
-            log_time: now_us() * 1000,
-            publish_time: now_us() * 1000,
-        },
-        &serde_json::to_vec(data)?,
-    )?;
-    Ok(())
-}
-
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()>{
-
     let connect = std::env::var("ZENOH_CONNECT")
         .unwrap_or_else(|_| "tcp/localhost:7447".to_string());
     let config = zenoh::Config::from_json5(&format!(
         r#"{{"mode":"client","connect":{{"endpoints":["{connect}"]}}}}"#
     )).map_err(|e| anyhow::anyhow!("{e}"))?;
     let session = zenoh::open(config).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-
     let pub_heartbeat = session.declare_publisher("rov/heartbeat")
         .await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let pub_attitude = session.declare_publisher("rov/attitude")
         .await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let pub_position = session.declare_publisher("rov/position")
         .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-
     let start = tokio::time::Instant::now();
-
-    let ( mut writer, ch_hb, ch_att, ch_pos ) = setup_mcap()?;
-    let mut sequence: u32 = 0;
-
     let mut sigterm = signal(SignalKind::terminate())?;
     loop {
         tokio::select! {
@@ -142,26 +91,17 @@ async fn main() -> anyhow::Result<()>{
           _ = sigterm.recv() => break,
           _ = tokio::time::sleep(Duration::from_millis(100)) => {
             let t = start.elapsed().as_secs_f64();
-
             let hb_data: Heartbeat = heartbeat();
             pub_heartbeat.put(serde_json::to_string(&hb_data)?)
                 .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-            write_mcap(&mut writer, ch_hb, sequence, &hb_data)?;
-
             let att_data: Attitude = simulate_attitude(t);
             pub_attitude.put(serde_json::to_string(&att_data)?)
                 .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-            write_mcap(&mut writer, ch_att, sequence, &att_data)?;
-
             let pos_data: GlobalPosition = simulate_position(t);
             pub_position.put(serde_json::to_string(&pos_data)?)
                 .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-            write_mcap(&mut writer, ch_pos, sequence, &pos_data)?;
-
-            sequence = sequence.wrapping_add(1)
           }
         }
     }
-    writer.finish()?;
     Ok(())
 }
