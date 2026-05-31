@@ -38,14 +38,17 @@ def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
     messages = []
     with open(path, "rb") as f:
         reader = NonSeekingReader(f)
-        for schema, channel, message in reader.iter_messages():
-            if len(messages) >= limit:
-                break
-            messages.append(McapMessage(
-                topic=channel.topic,
-                timestamp_us=message.log_time // 1000,
-                data=json.loads(message.data.decode("utf-8")),
-            ))
+        try:
+            for schema, channel, message in reader.iter_messages():
+                if len(messages) >= limit:
+                    break
+                messages.append(McapMessage(
+                    topic=channel.topic,
+                    timestamp_us=message.log_time // 1000,
+                    data=json.loads(message.data.decode("utf-8")),
+                ))
+        except Exception:
+            pass
     return messages
 
 
@@ -126,8 +129,8 @@ async def get_mcap_files(request: Request) -> list[str]:
     available_files = []
     for file_path in mcap_dir.glob("*.mcap"):
         try:
-            read_mcap(file_path, 1)
-            available_files.append(file_path.name)
+            if read_mcap(file_path, 1):
+                available_files.append(file_path.name)
         except Exception as e:
             print(f"Cant read file {file_path.name}: {e}")
     return available_files
@@ -151,9 +154,7 @@ async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> di
     file_path = mcap_dir / file.filename
     with open(file_path, "wb") as f:
         shutil.copyfileobj(file.file, f)
-    try:
-        read_mcap(file_path, 1)
-    except Exception:
+    if not read_mcap(file_path, 1):
         file_path.unlink()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid or corrupted mcap file")
     return { "filename": file.filename }

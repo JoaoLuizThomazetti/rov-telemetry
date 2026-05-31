@@ -2,6 +2,7 @@ use std::fs::File;
 use std::io::BufWriter;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::time::Duration;
+use tokio::signal::unix::{signal, SignalKind};
 use std::collections::BTreeMap;
 use mcap::records::MessageHeader;
 use serde::{Deserialize, Serialize};
@@ -134,9 +135,11 @@ async fn main() -> anyhow::Result<()>{
     let ( mut writer, ch_hb, ch_att, ch_pos ) = setup_mcap()?;
     let mut sequence: u32 = 0;
 
+    let mut sigterm = signal(SignalKind::terminate())?;
     loop {
         tokio::select! {
           _ = tokio::signal::ctrl_c() => break,
+          _ = sigterm.recv() => break,
           _ = tokio::time::sleep(Duration::from_millis(100)) => {
             let t = start.elapsed().as_secs_f64();
 
