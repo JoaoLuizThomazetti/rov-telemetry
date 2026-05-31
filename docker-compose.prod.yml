@@ -4,7 +4,7 @@ services:
     networks: [rov-net]
 
   simulator:
-    build: ./simulator
+    image: ghcr.io/joaoluizthomazetti/rov-telemetry-simulator:latest
     volumes: [mcap_data:/data]
     environment:
       - ZENOH_CONNECT=tcp/zenoh-router:7447
@@ -12,7 +12,7 @@ services:
     depends_on: [zenoh-router]
 
   recorder:
-    build: ./recorder
+    image: ghcr.io/joaoluizthomazetti/rov-telemetry-recorder:latest
     volumes: [mcap_data:/data]
     environment:
       - MCAP_DIR=/data
@@ -21,7 +21,7 @@ services:
     depends_on: [zenoh-router]
 
   backend:
-    build: ./backend
+    image: ghcr.io/joaoluizthomazetti/rov-telemetry-backend:latest
     volumes: [mcap_data:/data]
     environment:
       - MCAP_DIR=/data
@@ -30,7 +30,7 @@ services:
     depends_on: [zenoh-router]
 
   frontend:
-    build: ./frontend
+    image: ghcr.io/joaoluizthomazetti/rov-telemetry-frontend:latest
     ports: ["80:80"]
     networks: [rov-net]
     depends_on: [backend]
