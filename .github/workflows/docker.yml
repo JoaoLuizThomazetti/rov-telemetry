@@ -55,6 +55,7 @@ jobs:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT }}
           script: |
             curl -fsSL "https://raw.githubusercontent.com/JoaoLuizThomazetti/rov-telemetry/main/docker-compose.prod.yml" -o docker-compose.prod.yml
             docker compose -f docker-compose.prod.yml pull
