@@ -4,7 +4,9 @@ import { useWebSocket } from './composables/useWebSocket.ts'
 import { useMcapReplay } from './composables/useMcapReplay.ts'
 import { useRecorderControl } from './composables/useRecorderControl.ts'
 
-const ws = useWebSocket(`ws://${window.location.host}/ws/live`)
+const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
+const ws = useWebSocket(`${protocol}//${window.location.host}/ws/live`)
+
 const mode = ref<'live' | 'replay'>('live')
 const fileInput = ref<HTMLInputElement | null>(null)
 
