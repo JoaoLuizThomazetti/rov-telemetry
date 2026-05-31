@@ -27,7 +27,7 @@ export interface GlobalPosition {
 }
 
 export function useWebSocket(url: string) {
-    const heartbeat = ref<Heartbeat | null >(null)
+    const heartbeat = ref<Heartbeat | null>(null)
     const attitude  = ref<Attitude | null>(null)
     const position  = ref<GlobalPosition | null>(null)
     const connected = ref<boolean>(false)
