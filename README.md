@@ -8,10 +8,10 @@ Real-time telemetry dashboard for ROV (Remotely Operated Vehicle) data.
 
 ## Architecture
 
-Five independent services communicating via [Zenoh](https://zenoh.io/) pub/sub:
+Five independent services + zenoh router:
 
-
-- **simulator:** Rust + Zenoh | Publishes synthetic ROV telemetry at 10Hz
+- **mavlink-simulator:** Python + pymavlink | Publishes synthetic ROV telemetry as MAVLink UDP at 10Hz
+- **mavlink-bridge:** Rust + Zenoh | Receives MAVLink, decodes messages, publishes to Zenoh topics
 - **recorder:** Rust + Axum + Zenoh | Subscribes to all topics, writes MCAP files on demand
 - **backend:** Python + FastAPI + Zenoh | Reads MCAP files, forwards live data via WebSocket
 - **frontend:** Vue 3 + Vuetify + Vite | Live telemetry display and MCAP replay UI
@@ -50,7 +50,7 @@ Frontend available at `http://localhost`.
 ## CI/CD
 
 Push to `main` triggers a GitHub Actions workflow that:
-1. Builds all 4 Docker images in parallel
+1. Builds all 5 Docker images in parallel
 2. Pushes to GitHub Container Registry (`ghcr.io`)
 3. Deploys to VPS via SSH
 

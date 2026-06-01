@@ -3,9 +3,8 @@ services:
     image: eclipse/zenoh:latest
     networks: [rov-net]
 
-  simulator:
-    image: ghcr.io/joaoluizthomazetti/rov-telemetry-simulator:latest
-    volumes: [mcap_data:/data]
+  mavlink-bridge:
+    image: ghcr.io/joaoluizthomazetti/rov-telemetry-mavlink-bridge:latest
     environment:
       - ZENOH_CONNECT=tcp/zenoh-router:7447
     networks: [rov-net]
@@ -28,6 +27,13 @@ services:
       - ZENOH_CONNECT=tcp/zenoh-router:7447
     networks: [rov-net]
     depends_on: [zenoh-router]
+
+  mavlink-simulator:
+    image: ghcr.io/joaoluizthomazetti/rov-telemetry-mavlink-simulator:latest
+    environment:
+      - MAVLINK_TARGET=udpout:mavlink-bridge:14550
+    networks: [rov-net]
+    depends_on: [mavlink-bridge]
 
   frontend:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-frontend:latest
