@@ -68,11 +68,14 @@ const currentPosition  = computed(() => mode.value === 'live' ? ws.position.valu
 
         <!-- =========== File Load =========== -->
         <v-row align="center" justify="center" v-if="mode === 'replay'">
+          <v-btn icon @click="fetchFiles" variant="text" class="mr-2">
+            <v-icon>mdi-refresh</v-icon>
+          </v-btn>
           <v-col cols="auto">
             <v-select v-model="selectedFile" label="Choose .mcap file" :items="files" style="width: 300px"/>
           </v-col>
           <v-col cols="auto">
-            <v-text-field v-model="limit" type="number" label="Max messages" style="width: 120px" 
+            <v-text-field v-model="limit" type="number" label="Max messages" style="width: 120px"
             :rules="[v => v >= 1 || 'Min 1', v => v <= 10000 || 'Max 10000']" />
           </v-col>
           <v-btn class="ml-3" :disabled="!selectedFile" @click="fetchFile">load file</v-btn>
