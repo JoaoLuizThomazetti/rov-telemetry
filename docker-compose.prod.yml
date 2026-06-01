@@ -5,7 +5,6 @@ services:
 
   mavlink-bridge:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-mavlink-bridge:latest
-    volumes: [mcap_data:/data]
     environment:
       - ZENOH_CONNECT=tcp/zenoh-router:7447
     networks: [rov-net]

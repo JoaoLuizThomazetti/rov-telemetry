@@ -5,8 +5,8 @@ services:
 
   mavlink-bridge:
     build: ./mavlink-bridge
-    volumes: [mcap_data:/data]
     environment:
+      - MAVLINK_LISTEN=udpin:0.0.0.0:14550
       - ZENOH_CONNECT=tcp/zenoh-router:7447
     networks: [rov-net]
     depends_on: [zenoh-router]
@@ -33,6 +33,7 @@ services:
     build: ./mavlink-simulator
     environment:
       - MAVLINK_TARGET=udpout:mavlink-bridge:14550
+      - PYTHONUNBUFFERED=1
     networks: [rov-net]
     depends_on: [mavlink-bridge]
 
