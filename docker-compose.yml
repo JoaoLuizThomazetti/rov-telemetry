@@ -29,6 +29,13 @@ services:
     networks: [rov-net]
     depends_on: [zenoh-router]
 
+  mavlink-simulator:
+    build: ./mavlink-simulator
+    environment:
+      - MAVLINK_TARGET=udpout:mavlink_bridge:14550
+    networks: [rov-net]
+    depends_on: [mavlink-bridge]
+
   frontend:
     build: ./frontend
     ports: ["80:80"]
