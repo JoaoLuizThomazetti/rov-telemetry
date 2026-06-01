@@ -2,7 +2,7 @@
 
 Real-time telemetry dashboard for ROV (Remotely Operated Vehicle) data.
 
-**demo:** https://rov-telemetry.jlconsultoria.dev.br (user: `rov` / pass: `mcap`)
+**demo:** https://rov-telemetry.jlconsultoria.dev.br (need credentials)
 
 ---
 
