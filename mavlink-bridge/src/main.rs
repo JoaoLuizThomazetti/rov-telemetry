@@ -1,5 +1,6 @@
-use tokio::time::Duration;
+use mavlink::MavConnection;
 use serde::{Deserialize, Serialize};
+use mavlink::ardupilotmega::MavMessage;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::signal::unix::{signal, SignalKind};
 
@@ -39,68 +40,83 @@ fn now_us() -> u64 {
 }
 
 
-fn heartbeat() -> Heartbeat {
-    Heartbeat {
-        system_id: 1,
-        status: "active".to_string(),
-        timestamp_us: now_us(),
-    }
-}
-
-
-fn simulate_attitude(t: f64) -> Attitude {
-    Attitude {
-        roll: 0.3 * t.sin(),
-        pitch: 0.15 * (t * 0.7).sin(),
-        yaw: 0.1 * t,
-        timestamp_us: now_us(),
-    }
-}
-
-
-fn simulate_position(t: f64) -> GlobalPosition {
-    GlobalPosition {
-        lat: -27.5969 + 0.0001 * (t * 0.3).sin(),
-        lon: -48.5495 + 0.0001 * (t * 0.3).cos(),
-        alt_m: 10.0 + 2.0 * (t * 0.5).sin(),
-        heading_deg: (t * 5.0) % 360.0,
-        timestamp_us: now_us(),
-    }
-}
-
-
 #[tokio::main]
 async fn main() -> anyhow::Result<()>{
-    let connect = std::env::var("ZENOH_CONNECT")
-        .unwrap_or_else(|_| "tcp/localhost:7447".to_string());
+
+    let connect = std::env::var("ZENOH_CONNECT").unwrap_or_else(|_| "tcp/localhost:7447".to_string());
     let config = zenoh::Config::from_json5(&format!(
         r#"{{"mode":"client","connect":{{"endpoints":["{connect}"]}}}}"#
     )).map_err(|e| anyhow::anyhow!("{e}"))?;
     let session = zenoh::open(config).await.map_err(|e| anyhow::anyhow!("{e}"))?;
-    let pub_heartbeat = session.declare_publisher("rov/heartbeat")
-        .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-    let pub_attitude = session.declare_publisher("rov/attitude")
-        .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-    let pub_position = session.declare_publisher("rov/position")
-        .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-    let start = tokio::time::Instant::now();
+
+    let pub_heartbeat = session.declare_publisher("rov/heartbeat").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let pub_attitude = session.declare_publisher("rov/attitude").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let pub_position = session.declare_publisher("rov/position").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(mavlink::MavHeader, MavMessage)>(100);
+
+    std::thread::spawn(move || {
+        let mavlink_udp = std::env::var("MAVLINK_LISTEN").unwrap_or_else(|_| "udpin:0.0.0.0:14550".to_string());
+        let mut vehicle = mavlink::connect::<MavMessage>(&mavlink_udp).unwrap();
+        vehicle.set_allow_recv_any_version(true);
+
+        eprintln!("[bridge] MAVLink listening on {}", mavlink_udp);
+        
+        loop {
+            match vehicle.recv() {
+                Ok((header, msg)) => {
+                    eprintln!("[bridge] received sys={} type={:?}", header.system_id, msg);
+                    let _ = tx.blocking_send((header, msg));
+                }
+                Err(e) => {
+                    eprintln!("[bridge] recv error: {:?}", e);
+                }
+            }
+        }
+    });
+
     let mut sigterm = signal(SignalKind::terminate())?;
     loop {
         tokio::select! {
-          _ = tokio::signal::ctrl_c() => break,
-          _ = sigterm.recv() => break,
-          _ = tokio::time::sleep(Duration::from_millis(100)) => {
-            let t = start.elapsed().as_secs_f64();
-            let hb_data: Heartbeat = heartbeat();
-            pub_heartbeat.put(serde_json::to_string(&hb_data)?)
-                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-            let att_data: Attitude = simulate_attitude(t);
-            pub_attitude.put(serde_json::to_string(&att_data)?)
-                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-            let pos_data: GlobalPosition = simulate_position(t);
-            pub_position.put(serde_json::to_string(&pos_data)?)
-                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
-          }
+            _ = tokio::signal::ctrl_c() => break,
+            _ = sigterm.recv() => break,
+            msg = rx.recv() => {
+                if let Some((header, msg)) = msg {
+                    match msg {
+                        MavMessage::HEARTBEAT(hb) => {
+                            let hb_data =  Heartbeat {
+                                system_id: header.system_id,
+                                status: format!("{:?}", hb.system_status),
+                                timestamp_us: now_us(),
+                            };
+                            pub_heartbeat.put(serde_json::to_string(&hb_data)?)
+                            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                        },
+                        MavMessage::ATTITUDE(att) => {
+                            let att_data = Attitude {
+                                roll: att.roll as f64,
+                                pitch: att.pitch as f64,
+                                yaw: att.yaw as f64,
+                                timestamp_us: now_us(),
+                            };
+                            pub_attitude.put(serde_json::to_string(&att_data)?)
+                            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                        },
+                        MavMessage::GLOBAL_POSITION_INT(pos) => {
+                            let pos_data = GlobalPosition {
+                                lat: pos.lat as f64 / 1e7,
+                                lon: pos.lon as f64 / 1e7,
+                                alt_m: pos.alt as f64 / 1000.0,
+                                heading_deg: if pos.hdg == 65535 { 0.0 } else { pos.hdg as f64 / 100.0 },
+                                timestamp_us: now_us(),
+                            };
+                            pub_position.put(serde_json::to_string(&pos_data)?)
+                            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                        },
+                        _ => {}
+                    }
+                }
+            }
         }
     }
     Ok(())
