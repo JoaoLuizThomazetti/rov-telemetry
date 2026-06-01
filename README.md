@@ -11,11 +11,11 @@ Real-time telemetry dashboard for ROV (Remotely Operated Vehicle) data.
 Five independent services communicating via [Zenoh](https://zenoh.io/) pub/sub:
 
 
-**simulator:** Rust + Zenoh | Publishes synthetic ROV telemetry at 10Hz
-**recorder:** Rust + Axum + Zenoh | Subscribes to all topics, writes MCAP files on demand
-**backend:** Python + FastAPI + Zenoh | Reads MCAP files, forwards live data via WebSocket
-**frontend:** Vue 3 + Vuetify + Vite | Live telemetry display and MCAP replay UI
-**zenoh-router:** Eclipse Zenoh | Message broker for all inter-service communication
+- **simulator:** Rust + Zenoh | Publishes synthetic ROV telemetry at 10Hz
+- **recorder:** Rust + Axum + Zenoh | Subscribes to all topics, writes MCAP files on demand
+- **backend:** Python + FastAPI + Zenoh | Reads MCAP files, forwards live data via WebSocket
+- **frontend:** Vue 3 + Vuetify + Vite | Live telemetry display and MCAP replay UI
+- **zenoh-router:** Eclipse Zenoh | Message broker for all inter-service communication
 
 ---
 
