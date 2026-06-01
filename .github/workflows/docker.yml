@@ -15,8 +15,10 @@ jobs:
     strategy:
       matrix:
         include:
-          - service: simulator
-            context: simulator
+          - service: mavlink-bridge
+            context: mavlink-bridge
+          - service: mavlink-simulator
+            context: mavlink-simulator
           - service: recorder
             context: recorder
           - service: backend

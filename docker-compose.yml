@@ -3,8 +3,8 @@ services:
     image: eclipse/zenoh:latest
     networks: [rov-net]
 
-  simulator:
-    build: ./simulator
+  mavlink-bridge:
+    build: ./mavlink-bridge
     volumes: [mcap_data:/data]
     environment:
       - ZENOH_CONNECT=tcp/zenoh-router:7447
@@ -32,7 +32,7 @@ services:
   mavlink-simulator:
     build: ./mavlink-simulator
     environment:
-      - MAVLINK_TARGET=udpout:mavlink_bridge:14550
+      - MAVLINK_TARGET=udpout:mavlink-bridge:14550
     networks: [rov-net]
     depends_on: [mavlink-bridge]
 
