@@ -1,11 +1,10 @@
 use std::fs::File;
 use chrono::Local;
 use std::sync::Arc;
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use tokio::sync::mpsc;
 use tokio::sync::Mutex;
 use std::io::BufWriter;
-use axum::extract::State;
 use std::collections::HashMap;
 use std::collections::BTreeMap;
 use mcap::records::MessageHeader;
@@ -14,9 +13,12 @@ use utoipa_swagger_ui::SwaggerUi;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::signal::unix::{signal, SignalKind};
 use axum::{
+    http,
     Router,
     Json,
-    http::StatusCode,
+    extract::State,
+    body::{Body, to_bytes},
+    http::{StatusCode, Request},
     routing::{get, post}
 };
 
@@ -30,7 +32,7 @@ use axum::{
 struct ApiDoc;
 
 
-#[derive(Serialize, Clone, ToSchema)]
+#[derive(Serialize, Deserialize, Clone, ToSchema)]
 struct RecorderStatus {
     active: bool,
     filename: Option<String>,
@@ -40,7 +42,7 @@ struct RecorderStatus {
 
 enum WriterMsg {
     Start(String),
-    Stop,
+    Stop(tokio::sync::oneshot::Sender<()>),
     Sample { topic: String, payload: Vec<u8>, timestamp_ns: u64 },
 }
 
@@ -75,7 +77,7 @@ async fn zenoh_task(tx: mpsc::Sender<WriterMsg>, session: zenoh::Session) {
 }
 
 
-async fn writer_task(mut rx: mpsc::Receiver<WriterMsg>, status: Arc<Mutex<RecorderStatus>>) {
+async fn writer_task(mut rx: mpsc::Receiver<WriterMsg>) {
     let mut writer: Option<mcap::Writer<BufWriter<File>>> = None;
     let mut channels: HashMap<String, u16> = HashMap::new();
     let mut sequence: u32 = 0;
@@ -86,16 +88,13 @@ async fn writer_task(mut rx: mpsc::Receiver<WriterMsg>, status: Arc<Mutex<Record
                 let file = File::create(&s).unwrap();
                 writer = Some(mcap::Writer::new(BufWriter::new(file)).unwrap());
             },
-            WriterMsg::Stop => {
+            WriterMsg::Stop(done_tx) => {
                 if let Some(mut w) = writer.take() {
                     w.finish().unwrap();
                 }
                 channels.clear();
                 sequence = 0;
-                let mut s = status.lock().await;
-                s.active = false;
-                s.filename = None;
-                s.started_at = None;
+                let _ = done_tx.send(());
             },
             WriterMsg::Sample { topic, payload, timestamp_ns } => {
                 if let Some(ref mut w) = writer {
@@ -156,10 +155,15 @@ async fn start_writer(State(state): State<AppState>) -> Result<(StatusCode, Json
     tag = "RECORDER"
 )]
 async fn stop_writer(State(state): State<AppState>) -> Result<(StatusCode, Json<RecorderStatus>), StatusCode> {
-    if state.tx.send(WriterMsg::Stop).await.is_err() {
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    if state.tx.send(WriterMsg::Stop(done_tx)).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR)
     }
-    let status = state.status.lock().await;
+    done_rx.await.ok();
+    let mut status = state.status.lock().await;
+    status.active = false;
+    status.filename = None;
+    status.started_at = None;
     Ok((StatusCode::OK, Json(status.clone())))
 }
 
@@ -193,7 +197,7 @@ async fn main() -> anyhow::Result<()> {
             started_at: None,
         }));
     let zenoh_handle = tokio::spawn(zenoh_task(tx.clone(), session));
-    let writer_handle = tokio::spawn(writer_task(rx, status.clone()));
+    let writer_handle = tokio::spawn(writer_task(rx));
     let state = AppState { tx, status };
     let axum_handle = tokio::spawn(async move {
                 let app = Router::new()
@@ -214,4 +218,88 @@ async fn main() -> anyhow::Result<()> {
         _ = sigterm.recv() => {},
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use tower::ServiceExt;
+    use super::*;
+
+    fn build_test_app() -> Router {
+        let (tx, mut rx) = mpsc::channel::<WriterMsg>(10);
+        tokio::spawn(async move { while rx.recv().await.is_some() {} });
+        let status = Arc::new(Mutex::new(RecorderStatus {
+            active: false,
+            filename: None,
+            started_at: None,
+        }));
+        Router::new()
+            .route("/start", post(start_writer))
+            .route("/stop", post(stop_writer))
+            .route("/status", get(get_status))
+            .with_state(AppState { tx, status })
+    }
+
+    async fn deserialize_body(response: http::Response<axum::body::Body>) -> Option<RecorderStatus> {
+        let body = to_bytes(response.into_body(), usize::MAX).await.unwrap();
+        serde_json::from_slice(&body).unwrap()
+    }
+
+    #[tokio::test]
+    async fn test_get_status() {
+        let app = build_test_app();
+        let response = app
+            .oneshot(Request::get("/status").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let status: RecorderStatus = deserialize_body(response).await.unwrap();
+        assert!(!status.active);
+    }
+
+    #[tokio::test]
+    async fn test_get_status_started() {
+        let app = build_test_app();
+        let _ = app.clone()
+            .oneshot(Request::post("/start").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let response = app
+            .oneshot(Request::get("/status").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let status: RecorderStatus = deserialize_body(response).await.unwrap();
+        assert!(status.active);
+    }
+
+    #[tokio::test]
+    async fn test_post_start() {
+        let app = build_test_app();
+        let response = app
+            .oneshot(Request::post("/start").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let status: RecorderStatus = deserialize_body(response).await.unwrap();
+        assert!(status.active);
+        assert!(status.filename.is_some());
+    }
+
+    #[tokio::test]
+    async fn test_post_stop() {
+        let app = build_test_app();
+        let _ = app.clone()
+            .oneshot(Request::post("/start").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        let response = app
+            .oneshot(Request::post("/stop").body(Body::empty()).unwrap())
+            .await
+            .unwrap();
+        assert_eq!(response.status(), StatusCode::OK);
+        let status: RecorderStatus = deserialize_body(response).await.unwrap();
+        assert!(!status.active);
+    }
 }

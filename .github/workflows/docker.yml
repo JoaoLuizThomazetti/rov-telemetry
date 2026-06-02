@@ -34,9 +34,14 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
-          workspaces: mavlink-bridge
+          workspaces: |
+            mavlink-bridge
+            recorder
       - name: Test mavlink-bridge
         working-directory: mavlink-bridge
+        run: cargo test
+      - name: Test recorder
+        working-directory: recorder
         run: cargo test
 
   build:
