@@ -1,8 +1,18 @@
-use mavlink::MavConnection;
+use mavlink::{MavConnection, MavHeader};
 use serde::{Deserialize, Serialize};
-use mavlink::ardupilotmega::MavMessage;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::signal::unix::{signal, SignalKind};
+use mavlink::ardupilotmega::{
+    MavMessage,
+    MavState,
+    MavType,
+    MavAutopilot,
+    MavModeFlag,
+    HEARTBEAT_DATA,
+    ATTITUDE_DATA,
+    GLOBAL_POSITION_INT_DATA,
+
+};
 
 
 #[derive(Serialize, Deserialize)]
@@ -40,9 +50,40 @@ fn now_us() -> u64 {
 }
 
 
+fn parse_heartbeat(header: &mavlink::MavHeader, hb: &HEARTBEAT_DATA, ts: u64) -> Heartbeat {
+    Heartbeat {
+        system_id: header.system_id,
+        status: format!("{:?}", hb.system_status),
+        timestamp_us: ts,
+    }
+}
+
+
+fn parse_attitude(att: &ATTITUDE_DATA, ts: u64) -> Attitude {
+    Attitude {
+        roll: att.roll as f64,
+        pitch: att.pitch as f64,
+        yaw: att.yaw as f64,
+        timestamp_us: ts,
+    }
+}
+
+
+fn parse_global_position(pos: &GLOBAL_POSITION_INT_DATA, ts: u64) -> GlobalPosition {
+    GlobalPosition {
+        lat: pos.lat as f64 / 1e7,
+        lon: pos.lon as f64 / 1e7,
+        alt_m: pos.alt as f64 / 1000.0,
+        heading_deg: if pos.hdg == 65535 { 0.0 } else { pos.hdg as f64 / 100.0 },
+        timestamp_us: ts,
+    }
+}
+
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()>{
-
+    env_logger::init();
+    
     let connect = std::env::var("ZENOH_CONNECT").unwrap_or_else(|_| "tcp/localhost:7447".to_string());
     let config = zenoh::Config::from_json5(&format!(
         r#"{{"mode":"client","connect":{{"endpoints":["{connect}"]}}}}"#
@@ -60,16 +101,16 @@ async fn main() -> anyhow::Result<()>{
         let mut vehicle = mavlink::connect::<MavMessage>(&mavlink_udp).unwrap();
         vehicle.set_allow_recv_any_version(true);
 
-        eprintln!("[bridge] MAVLink listening on {}", mavlink_udp);
+        log::info!("[bridge] MAVLink listening on {}", mavlink_udp);
         
         loop {
             match vehicle.recv() {
                 Ok((header, msg)) => {
-                    eprintln!("[bridge] received sys={} type={:?}", header.system_id, msg);
+                    log::debug!("[bridge] received sys={} type={:?}", header.system_id, msg);
                     let _ = tx.blocking_send((header, msg));
                 }
                 Err(e) => {
-                    eprintln!("[bridge] recv error: {:?}", e);
+                    log::warn!("[bridge] recv error: {:?}", e);
                 }
             }
         }
@@ -84,32 +125,17 @@ async fn main() -> anyhow::Result<()>{
                 if let Some((header, msg)) = msg {
                     match msg {
                         MavMessage::HEARTBEAT(hb) => {
-                            let hb_data =  Heartbeat {
-                                system_id: header.system_id,
-                                status: format!("{:?}", hb.system_status),
-                                timestamp_us: now_us(),
-                            };
+                            let hb_data = parse_heartbeat(&header, &hb, now_us());
                             pub_heartbeat.put(serde_json::to_string(&hb_data)?)
                             .await.map_err(|e| anyhow::anyhow!("{e}"))?;
                         },
                         MavMessage::ATTITUDE(att) => {
-                            let att_data = Attitude {
-                                roll: att.roll as f64,
-                                pitch: att.pitch as f64,
-                                yaw: att.yaw as f64,
-                                timestamp_us: now_us(),
-                            };
+                            let att_data = parse_attitude(&att, now_us());
                             pub_attitude.put(serde_json::to_string(&att_data)?)
                             .await.map_err(|e| anyhow::anyhow!("{e}"))?;
                         },
                         MavMessage::GLOBAL_POSITION_INT(pos) => {
-                            let pos_data = GlobalPosition {
-                                lat: pos.lat as f64 / 1e7,
-                                lon: pos.lon as f64 / 1e7,
-                                alt_m: pos.alt as f64 / 1000.0,
-                                heading_deg: if pos.hdg == 65535 { 0.0 } else { pos.hdg as f64 / 100.0 },
-                                timestamp_us: now_us(),
-                            };
+                            let pos_data = parse_global_position(&pos, now_us());
                             pub_position.put(serde_json::to_string(&pos_data)?)
                             .await.map_err(|e| anyhow::anyhow!("{e}"))?;
                         },
@@ -120,4 +146,87 @@ async fn main() -> anyhow::Result<()>{
         }
     }
     Ok(())
+}
+
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_heartbeat() {
+        let header = MavHeader { system_id: 1, component_id: 1, sequence: 0 };
+        let hb = HEARTBEAT_DATA {
+            custom_mode: 0,
+            mavtype: MavType::MAV_TYPE_SUBMARINE,
+            autopilot: MavAutopilot::MAV_AUTOPILOT_GENERIC,
+            base_mode: MavModeFlag::empty(),
+            system_status: MavState::MAV_STATE_ACTIVE,
+            mavlink_version: 3,
+        };
+        let ts = now_us();
+        let hb_data = parse_heartbeat(&header, &hb, ts);
+        assert_eq!(hb_data.system_id, 1);
+        assert_eq!(hb_data.status, "MAV_STATE_ACTIVE");
+        assert_eq!(hb_data.timestamp_us, ts);
+    }
+
+    #[test]
+    fn test_parse_attitude() {
+        let att = ATTITUDE_DATA {
+            time_boot_ms: 0,
+            roll: 0.5_f32,
+            pitch: 0.3_f32,
+            yaw: 1.2_f32,
+            rollspeed: 0.0,
+            pitchspeed: 0.0,
+            yawspeed: 0.0,
+        };
+        let ts = now_us();
+        let att_data = parse_attitude(&att, ts);
+        assert_eq!(att_data.roll, 0.5_f32 as f64);
+        assert_eq!(att_data.pitch, 0.3_f32 as f64);
+        assert_eq!(att_data.yaw, 1.2_f32 as f64);
+        assert_eq!(att_data.timestamp_us, ts);
+    }
+
+    #[test]
+    fn test_parse_global_position() {
+        let pos = GLOBAL_POSITION_INT_DATA {
+            time_boot_ms: 0,
+            lat: -275969000_i32,
+            lon: -485495000_i32,
+            alt: 10000_i32,
+            relative_alt: 0,
+            vx: 0, vy: 0, vz: 0,
+            hdg: 18000_u16,
+        };
+        let ts = now_us();
+        let pos_data = parse_global_position(&pos, ts);
+        assert_eq!(pos_data.lat, -275969000_i32 as f64 / 1e7);
+        assert_eq!(pos_data.lon, -485495000_i32 as f64 / 1e7);
+        assert_eq!(pos_data.alt_m, 10000_i32 as f64 / 1000.0);
+        assert_eq!(pos_data.heading_deg, 18000_u16 as f64 / 100.0);
+        assert_eq!(pos_data.timestamp_us, ts);
+    }
+
+    #[test]
+    fn test_parse_global_position_unknown_heading() {
+        let pos = GLOBAL_POSITION_INT_DATA {
+            time_boot_ms: 0,
+            lat: -275969000_i32,
+            lon: -485495000_i32,
+            alt: 10000_i32,
+            relative_alt: 0,
+            vx: 0, vy: 0, vz: 0,
+            hdg: 65535_u16,
+        };
+        let ts = now_us();
+        let pos_data = parse_global_position(&pos, ts);
+        assert_eq!(pos_data.lat, -275969000_i32 as f64 / 1e7);
+        assert_eq!(pos_data.lon, -485495000_i32 as f64 / 1e7);
+        assert_eq!(pos_data.alt_m, 10000_i32 as f64 / 1000.0);
+        assert_eq!(pos_data.heading_deg, 0.0);
+        assert_eq!(pos_data.timestamp_us, ts);
+    }
 }
