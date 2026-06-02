@@ -9,17 +9,28 @@ use axum::extract::State;
 use std::collections::HashMap;
 use std::collections::BTreeMap;
 use mcap::records::MessageHeader;
+use utoipa::{OpenApi, ToSchema};
+use utoipa_swagger_ui::SwaggerUi;
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::signal::unix::{signal, SignalKind};
 use axum::{
     Router,
     Json,
     http::StatusCode,
-    routing::get
+    routing::{get, post}
 };
 
 
-#[derive(Serialize, Clone)]
+#[derive(OpenApi)]
+#[openapi(
+    paths(start_writer, stop_writer, get_status),
+    components(schemas(RecorderStatus)),
+    info(title = "ROV Recorder API", version = "1.0.0")
+)]
+struct ApiDoc;
+
+
+#[derive(Serialize, Clone, ToSchema)]
 struct RecorderStatus {
     active: bool,
     filename: Option<String>,
@@ -111,6 +122,15 @@ async fn writer_task(mut rx: mpsc::Receiver<WriterMsg>, status: Arc<Mutex<Record
 }
 
 
+#[utoipa::path(
+    post,
+    path = "/start",
+    responses(
+        (status = 200, description = "Recording started", body = RecorderStatus),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "RECORDER"
+)]
 async fn start_writer(State(state): State<AppState>) -> Result<(StatusCode, Json<RecorderStatus>), StatusCode> {
     let mcap_dir = std::env::var("MCAP_DIR").unwrap_or_else(|_| ".".to_string());
     let date = Local::now().format("%Y-%m-%dT%H-%M-%S").to_string();
@@ -126,6 +146,15 @@ async fn start_writer(State(state): State<AppState>) -> Result<(StatusCode, Json
 }
 
 
+#[utoipa::path(
+    post,
+    path = "/stop",
+    responses(
+        (status = 200, description = "Recording stopped", body = RecorderStatus),
+        (status = 500, description = "Internal server error"),
+    ),
+    tag = "RECORDER"
+)]
 async fn stop_writer(State(state): State<AppState>) -> Result<(StatusCode, Json<RecorderStatus>), StatusCode> {
     if state.tx.send(WriterMsg::Stop).await.is_err() {
         return Err(StatusCode::INTERNAL_SERVER_ERROR)
@@ -135,6 +164,14 @@ async fn stop_writer(State(state): State<AppState>) -> Result<(StatusCode, Json<
 }
 
 
+#[utoipa::path(
+    get,
+    path = "/status",
+    responses(
+        (status = 200, description = "Return recorder status", body = RecorderStatus),
+    ),
+    tag = "RECORDER"
+)]
 async fn get_status(State(state): State<AppState>) -> Json<RecorderStatus> {
     let status = state.status.lock().await;
     Json(status.clone())
@@ -160,8 +197,10 @@ async fn main() -> anyhow::Result<()> {
     let state = AppState { tx, status };
     let axum_handle = tokio::spawn(async move {
                 let app = Router::new()
-                    .route("/start", get(start_writer))
-                    .route("/stop", get(stop_writer))
+                    .merge(SwaggerUi::new("/swagger-ui")
+                    .url("/recorder/api-docs/openapi.json", ApiDoc::openapi()))
+                    .route("/start", post(start_writer))
+                    .route("/stop", post(stop_writer))
                     .route("/status", get(get_status))
                     .with_state(state);
                 let listener = tokio::net::TcpListener::bind("0.0.0.0:3000").await.unwrap();
