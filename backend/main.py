@@ -156,7 +156,7 @@ async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> di
         shutil.copyfileobj(file.file, f)
     if not read_mcap(file_path, 1):
         file_path.unlink()
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="invalid or corrupted mcap file")
+        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid or corrupted mcap file")
     return { "filename": file.filename }
 
 
