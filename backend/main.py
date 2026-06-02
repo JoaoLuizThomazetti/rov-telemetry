@@ -21,17 +21,22 @@ from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
+from collections.abc import AsyncIterator
 from mcap.reader import NonSeekingReader
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
 
 
 MCAP_DIR = Path(os.environ.get("MCAP_DIR", "."))
 
 
 class McapMessage(BaseModel):
-    topic: str
-    timestamp_us: int
-    data: dict
+    topic: str = Field(description="Zenoh topic")
+    timestamp_us: int = Field(description="Log timestamp in us")
+    data: dict = Field(description="Message payload as JSON")
+
+
+class UploadResponse(BaseModel):
+    filename: str = Field(description="Uploaded file name")
 
 
 def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
@@ -52,7 +57,7 @@ def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
     return messages
 
 
-async def broadcast(ws_clients: set[WebSocket], payload: str):
+async def broadcast(ws_clients: set[WebSocket], payload: str) -> None:
     for client in set(ws_clients):
         try:
             await client.send_text(payload)
@@ -60,9 +65,8 @@ async def broadcast(ws_clients: set[WebSocket], payload: str):
             ws_clients.discard(client)
 
 
-def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop):
+def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop) -> None:
     session = app.state.zenoh_session
-
     def on_message(sample):
         payload = json.dumps({
             "topic": str(sample.key_expr),
@@ -72,13 +76,12 @@ def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop):
             broadcast(app.state.ws_clients, payload),
             loop
         )
-    
     session.declare_subscriber("rov/**", on_message)
     while True:
         time.sleep(1)
 
 
-async def check_file(mcap_dir: Path, file_name: str, is_upload: bool = False):
+async def check_file(mcap_dir: Path, file_name: str, is_upload: bool = False) -> None:
     if not file_name.endswith(".mcap"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be .mcap")
     if not (mcap_dir / file_name).resolve().is_relative_to(mcap_dir.resolve()):
@@ -92,39 +95,41 @@ async def check_file(mcap_dir: Path, file_name: str, is_upload: bool = False):
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     loop = asyncio.get_running_loop()
-
     connect = os.environ.get("ZENOH_CONNECT", "tcp/localhost:7447")
     config = zenoh.Config()
     config.insert_json5("mode", '"client"')
     config.insert_json5("connect/endpoints", f'["{connect}"]')
     session = zenoh.open(config)
-
     app.state.zenoh_session = session
     app.state.ws_clients = set()
     app.state.mcap_dir = Path(MCAP_DIR)
-
     thread = threading.Thread(
         target=subscriber,
         args=(app, loop),
         daemon=True
     )
     thread.start()
-
     yield
-
     session.close()
     for client in app.state.ws_clients:
         await client.close(code=1001)
 
 
-app = FastAPI(lifespan=lifespan, root_path="/mcap")
+app = FastAPI(
+    title="ROV Telemetry API",
+    description="MCAP recording management and live telemetry",
+    version="1.0.0",
+    lifespan=lifespan,
+    root_path="/mcap",
+)
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 
-@app.get("/files")
+@app.get("/files", tags=["MCAP"], responses={500: {"description": "Internal server error"}})
 async def get_mcap_files(request: Request) -> list[str]:
+    """List all valid mcap files"""
     mcap_dir = request.app.state.mcap_dir
     available_files = []
     for file_path in mcap_dir.glob("*.mcap"):
@@ -136,8 +141,13 @@ async def get_mcap_files(request: Request) -> list[str]:
     return available_files
 
 
-@app.get("/files/{file_name}")
+@app.get("/files/{file_name}", tags=["MCAP"], response_class=FileResponse, responses={
+    200: {"content": {"application/octet-stream": {}}, "description": "mcap file download"},
+    400: {"description": "Invalid file extension"},
+    404: {"description": "File not found"},
+})
 async def get_mcap_file(request: Request, file_name: str):
+    """Download MCAP by filename"""
     mcap_dir = request.app.state.mcap_dir
     await check_file(mcap_dir, file_name)
     return FileResponse(
@@ -147,8 +157,13 @@ async def get_mcap_file(request: Request, file_name: str):
     )
 
 
-@app.post("/files")
-async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> dict:
+@app.post("/files", tags=["MCAP"], responses={
+    400: {"description": "Invalid file extension"},
+    409: {"description": "File already exists"},
+    422: {"description": "Invalid or corrupted mcap file"},
+})
+async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> UploadResponse:
+    """Upload a new mcap file. Rejects corrupted or wrong extension file"""
     mcap_dir = request.app.state.mcap_dir
     await check_file(mcap_dir, file.filename, True)
     file_path = mcap_dir / file.filename
@@ -157,19 +172,28 @@ async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> di
     if not read_mcap(file_path, 1):
         file_path.unlink()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid or corrupted mcap file")
-    return { "filename": file.filename }
+    return UploadResponse(filename=file.filename)
 
 
-@app.delete("/files/{file_name}")
+@app.delete("/files/{file_name}", tags=["MCAP"], responses={
+    400: {"description": "Invalid file extension or path"},
+    404: {"description": "File not found"},
+})
 async def del_mcap_file(request: Request, file_name: str) -> None:
+    """Delete mcap file by name"""
     mcap_dir = request.app.state.mcap_dir
     await check_file(mcap_dir, file_name)
     (mcap_dir / file_name).resolve().unlink()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
-@app.get("/messages/{file_name}")
-async def get_mcap_messages(request: Request, file_name: str, limit: int = Query(default=1000)) -> list[McapMessage]:
+@app.get("/messages/{file_name}", tags=["MCAP"], responses={
+    400: {"description": "Invalid file extension or path"},
+    404: {"description": "File not found"},
+    500: {"description": "Failed to read mcap file"},
+})
+async def get_mcap_messages(request: Request, file_name: str, limit: int = Query(default=1000, description="Max messages to return")) -> list[McapMessage]:
+    """Read and return messages from mcap file."""
     mcap_dir = request.app.state.mcap_dir
     await check_file(mcap_dir, file_name)
     try:
