@@ -23,7 +23,7 @@ export function useRecorderControl() {
     }
 
     const startRecorder = async () => {
-        const response = await fetch('/recorder/start')
+        const response = await fetch('/recorder/start', { method: 'POST' })
         if (!response.ok) {
             recErrMsg.value = await response.json().then(r => r.detail)
             recErr.value = true
@@ -33,7 +33,7 @@ export function useRecorderControl() {
     }
 
     const stopRecorder = async () => {
-        const response = await fetch('/recorder/stop')
+        const response = await fetch('/recorder/stop', { method: 'POST' })
         if (!response.ok) {
             recErrMsg.value = await response.json().then(r => r.detail)
             recErr.value = true
