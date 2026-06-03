@@ -26,6 +26,12 @@ jobs:
       - name: Test mavlink-simulator
         working-directory: mavlink-simulator
         run: uv run pytest tests/
+      - name: Install vision dependencies
+        working-directory: vision
+        run: uv sync
+      - name: Test vision
+        working-directory: vision
+        run: uv run pytest tests/
 
   tests-rust:
     runs-on: ubuntu-latest
@@ -64,6 +70,8 @@ jobs:
             context: backend
           - service: frontend
             context: frontend
+          - service: vision
+            context: vision
     steps:
       - uses: actions/checkout@v4
       - name: Set lowercase owner

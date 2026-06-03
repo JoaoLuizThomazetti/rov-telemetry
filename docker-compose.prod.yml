@@ -28,6 +28,13 @@ services:
     networks: [rov-net]
     depends_on: [zenoh-router]
 
+  vision:
+    image: ghcr.io/joaoluizthomazetti/rov-telemetry-vision:latest
+    volumes: [vision_videos:/videos]
+    environment:
+      - VIDEO_DIR=/videos
+    networks: [rov-net]
+
   mavlink-simulator:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-mavlink-simulator:latest
     environment:
@@ -46,3 +53,4 @@ networks:
 
 volumes:
   mcap_data:
+  vision_videos:
