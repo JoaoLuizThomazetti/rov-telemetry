@@ -30,7 +30,10 @@ export function useWebRTC() {
             }
         }
         pc.addTransceiver('video', { direction: 'recvonly' })
-        pc.ontrack = (e) => { stream.value = e.streams?.[0] ?? null }
+        pc.ontrack = (e) => {
+            stream.value = e.streams?.[0] ?? null
+            connected.value = true
+        }
         const offer = await pc.createOffer()
         await pc.setLocalDescription(offer)
         const payload = {
@@ -53,7 +56,6 @@ export function useWebRTC() {
         }
         const answer = await response.json()
         await pc.setRemoteDescription(new RTCSessionDescription(answer))
-        connected.value = true
     }
 
     const disconnect = async () => {
