@@ -1,5 +1,6 @@
 import os
 import cv2
+import shutil
 import logging
 import asyncio
 from pathlib import Path
@@ -94,9 +95,15 @@ def check_file(video_dir: Path, file_name: str, is_upload: bool = False) -> None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    VIDEO_DIR.mkdir(parents=True, exist_ok=True)
+    samples_dir = Path(__file__).parent / "samples"
+    for sample in samples_dir.glob("*.mp4"):
+        dest = VIDEO_DIR / sample.name
+        if not dest.exists():
+            shutil.copy(sample, dest)
     peer_conns: set[RTCPeerConnection] = set()
     app.state.peer_conns = peer_conns
-    app.state.video_dir = Path(VIDEO_DIR)
+    app.state.video_dir = VIDEO_DIR
     yield
     for peer_conn in app.state.peer_conns:
         await peer_conn.close()
