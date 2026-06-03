@@ -1,6 +1,7 @@
 import os
 import cv2
 import logging
+import asyncio
 from pathlib import Path
 from av import VideoFrame
 from pydantic import BaseModel, Field
@@ -49,12 +50,13 @@ class CvTrack(VideoStreamTrack):
         self.loop = loop
 
     async def recv(self) -> VideoFrame:
-        ret, frame = self.cap.read()
+        loop = asyncio.get_running_loop()
+        ret, frame = await loop.run_in_executor(None, self.cap.read)
         if not ret:
             if self.loop:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, frame = self.cap.read()
-            else:
+                ret, frame = await loop.run_in_executor(None, self.cap.read)
+            if not ret:
                 raise Exception("Failed to read frame")
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         video_frame = VideoFrame.from_ndarray(frame, format="rgb24")
@@ -175,6 +177,9 @@ async def post_offer(request: Request, offer: OfferRequest) -> OfferResponse:
     """WebRTC signaling"""
     video_dir = request.app.state.video_dir
     peer_conns = app.state.peer_conns
+    for old in set(peer_conns):
+        await old.close()
+    peer_conns.clear()
     peer_conn = RTCPeerConnection(configuration=config)
     source = str(video_dir / offer.source_id) if offer.source_type == "video" else int(offer.source_id)
     track = CvTrack(source, loop=offer.source_type == "video")
@@ -182,6 +187,8 @@ async def post_offer(request: Request, offer: OfferRequest) -> OfferResponse:
     await peer_conn.setRemoteDescription(RTCSessionDescription(sdp=offer.sdp, type=offer.type))
     answer = await peer_conn.createAnswer()
     await peer_conn.setLocalDescription(answer)
+    while peer_conn.iceGatheringState != "complete":
+        await asyncio.sleep(0.1)
 
     @peer_conn.on("connectionstatechange")
     async def on_state():
