@@ -70,10 +70,6 @@ jobs:
             context: backend
           - service: frontend
             context: frontend
-            build_args: |
-              VITE_TURN_URL=${{ secrets.TURN_URL }}
-              VITE_TURN_USER=${{ secrets.TURN_USER }}
-              VITE_TURN_PASS=${{ secrets.TURN_PASS }}
           - service: vision
             context: vision
     steps:
@@ -91,7 +87,10 @@ jobs:
           context: ./${{ matrix.context }}
           push: true
           tags: ghcr.io/${{ env.OWNER }}/rov-telemetry-${{ matrix.service }}:latest
-          build-args: ${{ matrix.build_args || '' }}
+          build-args: |
+            VITE_TURN_URL=${{ secrets.TURN_URL }}
+            VITE_TURN_USER=${{ secrets.TURN_USER }}
+            VITE_TURN_PASS=${{ secrets.TURN_PASS }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
