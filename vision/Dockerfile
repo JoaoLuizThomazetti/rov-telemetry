@@ -8,4 +8,4 @@ COPY pyproject.toml uv.lock* ./
 RUN uv sync --frozen --no-dev
 COPY samples/ /app/samples/
 COPY main.py .
-CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8001"]
+CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]
