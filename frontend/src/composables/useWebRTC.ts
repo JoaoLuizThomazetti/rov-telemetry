@@ -18,7 +18,15 @@ export function useWebRTC() {
     let pc: RTCPeerConnection | null = null
     
     const connect = async (sourceType: 'video' | 'camera', sourceId: string | number | null) => {
-        pc = new RTCPeerConnection({ iceServers: [{ urls: "stun:stun.l.google.com:19302" }] })
+        const iceServers: RTCIceServer[] = [{ urls: "stun:stun.l.google.com:19302" }]
+        if (import.meta.env.VITE_TURN_URL) {
+            iceServers.push({
+                urls: import.meta.env.VITE_TURN_URL,
+                username: import.meta.env.VITE_TURN_USER,
+                credential: import.meta.env.VITE_TURN_PASS
+            })
+        }
+        pc = new RTCPeerConnection({ iceServers })
         pc.onconnectionstatechange = () => {
             if (pc?.connectionState === 'connected') {
                 connected.value = true

@@ -70,6 +70,10 @@ jobs:
             context: backend
           - service: frontend
             context: frontend
+            build_args: |
+              VITE_TURN_URL=${{ secrets.TURN_URL }}
+              VITE_TURN_USER=${{ secrets.TURN_USER }}
+              VITE_TURN_PASS=${{ secrets.TURN_PASS }}
           - service: vision
             context: vision
     steps:
@@ -87,6 +91,7 @@ jobs:
           context: ./${{ matrix.context }}
           push: true
           tags: ghcr.io/${{ env.OWNER }}/rov-telemetry-${{ matrix.service }}:latest
+          build-args: ${{ matrix.build_args || '' }}
           cache-from: type=gha,scope=${{ matrix.service }}
           cache-to: type=gha,mode=max,scope=${{ matrix.service }}
 
@@ -96,12 +101,18 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: appleboy/ssh-action@v1
+        env:
+          TURN_URL: ${{ secrets.TURN_URL }}
+          TURN_USER: ${{ secrets.TURN_USER }}
+          TURN_PASS: ${{ secrets.TURN_PASS }}
         with:
           host: ${{ secrets.VPS_HOST }}
           username: ${{ secrets.VPS_USER }}
           key: ${{ secrets.VPS_SSH_KEY }}
           port: ${{ secrets.VPS_PORT }}
+          envs: TURN_URL,TURN_USER,TURN_PASS
           script: |
+            printf "TURN_URL=%s\nTURN_USER=%s\nTURN_PASS=%s\n" "$TURN_URL" "$TURN_USER" "$TURN_PASS" > .env
             curl -fsSL "https://raw.githubusercontent.com/JoaoLuizThomazetti/rov-telemetry/main/docker-compose.prod.yml" -o docker-compose.prod.yml
             docker compose -f docker-compose.prod.yml pull
             docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate

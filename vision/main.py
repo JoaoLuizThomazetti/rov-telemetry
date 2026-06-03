@@ -14,13 +14,19 @@ from fastapi import FastAPI, Response, HTTPException, status, Request, UploadFil
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, RTCIceServer
 
 
+VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "/videos"))
+TURN_URL = os.environ.get("TURN_URL", "")
+TURN_USER = os.environ.get("TURN_USER", "")
+TURN_PASS = os.environ.get("TURN_PASS", "")
+
+
 logger = logging.getLogger("uvicorn.error")
 
-config = RTCConfiguration(iceServers=[
-    RTCIceServer(urls="stun:stun.l.google.com:19302")
-])
+_ice_servers = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
+if TURN_URL:
+    _ice_servers.append(RTCIceServer(urls=TURN_URL, username=TURN_USER, credential=TURN_PASS))
 
-VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "/videos"))
+config = RTCConfiguration(iceServers=_ice_servers)
 
 
 class OfferRequest(BaseModel):
