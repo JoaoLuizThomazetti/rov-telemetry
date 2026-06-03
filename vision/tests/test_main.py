@@ -6,10 +6,9 @@ from fastapi.testclient import TestClient
 
 @pytest.fixture
 def client(tmp_path):
-    with TestClient(app) as c:
-        app.state.video_dir = tmp_path
-        app.state.peer_conns = set()
-        yield c
+    app.state.video_dir = tmp_path
+    app.state.peer_conns = set()
+    yield TestClient(app)
 
 
 # ======== Health check
