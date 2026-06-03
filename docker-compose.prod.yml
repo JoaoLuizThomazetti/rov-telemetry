@@ -33,7 +33,11 @@ services:
     volumes: [vision_videos:/videos]
     environment:
       - VIDEO_DIR=/videos
-    network_mode: host
+      - TURN_URL=${TURN_URL}
+      - TURN_USER=${TURN_USER}
+      - TURN_PASS=${TURN_PASS}
+    networks: [rov-net]
+    ports: ["127.0.0.1:8003:8003"]
 
   mavlink-simulator:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-mavlink-simulator:latest
