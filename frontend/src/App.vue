@@ -1,17 +1,28 @@
 <script setup lang="ts">
-import { ref, computed } from 'vue'
+import { ref, computed, watchEffect, watch } from 'vue'
 import { useWebSocket } from './composables/useWebSocket.ts'
 import { useMcapReplay } from './composables/useMcapReplay.ts'
 import { useRecorderControl } from './composables/useRecorderControl.ts'
+import { useWebRTC } from './composables/useWebRTC.ts'
 
 const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
 const ws = useWebSocket(`${protocol}//${window.location.host}/ws/live`)
 
 const mode = ref<'live' | 'replay'>('live')
 const fileInput = ref<HTMLInputElement | null>(null)
+const videoInput = ref<HTMLInputElement | null>(null)
+const sourceType = ref<'video' | 'camera'>('camera')
 
-function triggerInput() {
+const videoEl = ref<HTMLVideoElement | null>(null)
+
+
+
+function triggerFileInput() {
   fileInput.value?.click()
+}
+
+function triggerVideoInput() {
+  videoInput.value?.click()
 }
 
 async function handleStopRecorder() {
@@ -26,6 +37,21 @@ const formatTime = (us: number): string => {
 }
 
 const { active, filename, started_at, recErr, recErrMsg, startRecorder, stopRecorder } = useRecorderControl()
+
+const {
+  stream,
+  connected,
+  sources,
+  sourceId,
+  rtcErr,
+  rtcMsgErr,
+  confirmDelVideo,
+  connect,
+  disconnect,
+  fetchSources,
+  uploadVideo, 
+  deleteVideo
+} = useWebRTC()
 
 const { files,
   selectedFile,
@@ -44,11 +70,23 @@ const { files,
   uploadFile,
   deleteFile,
   fetchFile,
-  fetchFiles } = useMcapReplay()
+  fetchFiles 
+} = useMcapReplay()
 
 const currentHeartbeat = computed(() => mode.value === 'live' ? ws.heartbeat.value : heartbeat.value)
 const currentAttitude  = computed(() => mode.value === 'live' ? ws.attitude.value  : attitude.value)
 const currentPosition  = computed(() => mode.value === 'live' ? ws.position.value  : position.value)
+
+const typeSource = computed(() => {
+  if (sourceType.value === 'video') return (sources.value?.videos ?? []).map(v => ({ title: v, value: v }))
+  return (sources.value?.cameras ?? []).map(i => ({ title: `Camera ${i}`, value: i }))
+})
+
+watchEffect(() => {
+  if (videoEl.value) videoEl.value.srcObject = stream.value
+})
+
+watch(sourceType, () => { sourceId.value = null })
 
 </script>
 
@@ -84,7 +122,7 @@ const currentPosition  = computed(() => mode.value === 'live' ? ws.position.valu
         <!-- =========== File Buttons =========== -->
         <v-row align="center" justify="center" v-if="mode === 'replay'">
           <v-col cols="auto">
-            <v-btn class="mr-5" @click="triggerInput">upload</v-btn>
+            <v-btn class="mr-5" @click="triggerFileInput">upload</v-btn>
             <input ref="fileInput" type="file" class="d-none" accept=".mcap" @change="uploadFile" />
             <v-btn class="mr-5" @click="downloadFile" :disabled="!selectedFile">download</v-btn>
             <v-snackbar v-model="error" color="error" location="bottom" class="mb-5" :timeout="2000">
@@ -167,7 +205,54 @@ const currentPosition  = computed(() => mode.value === 'live' ? ws.position.valu
             </v-card>
           </v-col>
         </v-row>
+        <v-divider class="my-6 mx-0"/>
 
+        <v-row justify="center" align="center" class="mt-5 mb-5 position-relative" v-if="mode === 'live'" >
+            <v-col cols="auto">
+              <v-radio-group v-model="sourceType">
+                <v-radio class="mr-5" label="Camera" value="camera"/>
+                <v-radio class="mr-5" label="Video" value="video" />
+              </v-radio-group>
+            </v-col>
+            <v-col cols="auto">
+              <v-select v-model="sourceId" label="Choose source" :items="typeSource" style="width: 300px"/>
+            </v-col>
+            <v-btn icon @click="fetchSources" variant="text" class="mr-2">
+              <v-icon>mdi-refresh</v-icon>
+            </v-btn>
+
+            <v-col cols="auto">
+              <v-row justify="center" class="mb-2">
+                <v-btn class="mr-3" :disabled="(sourceType === 'camera')" @click="triggerVideoInput">upload</v-btn>
+                <input ref="videoInput" type="file" class="d-none" accept=".mp4" @change="uploadVideo" />
+                <v-btn @click="confirmDelVideo = true" :disabled="(sourceType === 'camera') || !sourceId?.toString().trim()">delete</v-btn>
+                <v-dialog v-model="confirmDelVideo" max-width="400">
+                  <v-card>
+                    <v-card-title>Delete video?</v-card-title>
+                    <v-card-text>Confirm deleting: {{ sourceId }}</v-card-text>
+                    <v-card-actions>
+                      <v-spacer />
+                      <v-btn @click="confirmDelVideo = false">No</v-btn>
+                      <v-btn color="error" @click="deleteVideo">Yes</v-btn>
+                    </v-card-actions>
+                  </v-card>
+                </v-dialog>
+              </v-row>
+
+              <v-row justify="center">
+                <v-btn class="ml-3" :disabled="connected || !sourceId?.toString().trim()" @click="connect(sourceType, sourceId)">connect</v-btn>
+                <v-btn class="ml-3" :disabled="!connected" @click="disconnect">disconnect</v-btn>
+                <v-snackbar v-model="rtcErr" color="error" location="bottom" class="mb-5" :timeout="2000">
+                  {{ rtcMsgErr }}
+                </v-snackbar>
+              </v-row>
+              
+            </v-col>
+        </v-row>
+        <v-row justify="center" align="center" class="mt-5 mb-5 position-relative" v-if="mode === 'live'" >
+          <video v-if="connected" ref="videoEl" autoplay playsinline muted style="width: 100%; max-width: 500px;"></video>
+          <v-img v-else src="/disconnected.jpeg" style="max-width: 500px;" class="mx-auto"/>
+        </v-row>
       </v-container>
     </v-main>
   </v-app>
