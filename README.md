@@ -2,19 +2,22 @@
 
 Real-time telemetry dashboard for ROV (Remotely Operated Vehicle) data.
 
-**demo:** https://rov-telemetry.jlconsultoria.dev.br (need credentials)
+![screenshot](https://github.com/user-attachments/assets/7516af87-18d4-4921-8eb3-123e7bf56272)
+
+<video src="https://github.com/user-attachments/assets/6514db3f-b954-42c5-8ef8-232900649967" controls width="100%"></video>
 
 ---
 
 ## Architecture
 
-Five independent services + zenoh router:
+Six independent services + zenoh router:
 
 - **mavlink-simulator:** Python + pymavlink | Publishes synthetic ROV telemetry as MAVLink UDP at 10Hz
 - **mavlink-bridge:** Rust + Zenoh | Receives MAVLink, decodes messages, publishes to Zenoh topics
 - **recorder:** Rust + Axum + Zenoh | Subscribes to all topics, writes MCAP files on demand
 - **backend:** Python + FastAPI + Zenoh | Reads MCAP files, forwards live data via WebSocket
-- **frontend:** Vue 3 + Vuetify + Vite | Live telemetry display and MCAP replay UI
+- **vision:** Python + FastAPI + aiortc + OpenCV | WebRTC video streaming from cameras and video files
+- **frontend:** Vue 3 + Vuetify + Vite | Live telemetry, MCAP replay, and WebRTC video stream UI
 - **zenoh-router:** Eclipse Zenoh | Message broker for all inter-service communication
 
 ---
@@ -34,6 +37,11 @@ Five independent services + zenoh router:
 - Start/stop MCAP recordings via REST API (`POST /recorder/start`, `POST /recorder/stop`)
 - Graceful shutdown (SIGTERM handler) ensures files are always properly finalized
 - Tolerant reader: partial recordings from interrupted sessions are listed when readable
+
+### Video Streaming
+- WebRTC peer-to-peer video stream from physical cameras or uploaded `.mp4` files
+- Upload and delete video files via the UI
+- Optional TURN server support for remote deployments (configurable via environment variables)
 
 ---
 
@@ -69,3 +77,12 @@ docker compose -f docker-compose.prod.yml up -d
 | `POST` | `/recorder/start` | Start a new MCAP recording |
 | `POST` | `/recorder/stop` | Stop and finalize the current recording |
 | `GET` | `/recorder/status` | Recording status, filename, start time |
+
+## Vision API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/vision/sources` | List available cameras and video files |
+| `POST` | `/vision/offer` | Exchange WebRTC SDP offer/answer |
+| `POST` | `/vision/videos` | Upload a `.mp4` video file |
+| `DELETE` | `/vision/videos/{filename}` | Delete a video file |
