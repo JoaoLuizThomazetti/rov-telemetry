@@ -2,7 +2,7 @@
 
 Real-time telemetry dashboard for ROV (Remotely Operated Vehicle) data.
 
-![screenshot](https://github.com/user-attachments/assets/7516af87-18d4-4921-8eb3-123e7bf56272)
+![screenshot](https://github.com/user-attachments/assets/e95326ca-7fc3-49c2-b646-c1080233bea9)
 
 <video src="https://github.com/user-attachments/assets/6514db3f-b954-42c5-8ef8-232900649967" controls width="100%"></video>
 
@@ -42,6 +42,7 @@ Six independent services + zenoh router:
 - WebRTC peer-to-peer video stream from physical cameras or uploaded `.mp4` files
 - Upload and delete video files via the UI
 - Optional TURN server support for remote deployments (configurable via environment variables)
+- Optional real-time YOLO object detection overlay (YOLOv8n fine-tuned on underwater marine species: eel, fish, jellyfish, lionfish, lobster — mAP50 80.6%)
 
 ---
 
