@@ -7,5 +7,5 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY pyproject.toml uv.lock* ./
 RUN uv sync --frozen --no-dev
 COPY samples/ /app/samples/
-COPY main.py .
+COPY main.py marine.pt ./
 CMD ["uv", "run", "uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8003"]

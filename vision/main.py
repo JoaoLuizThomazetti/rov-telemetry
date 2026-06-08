@@ -26,6 +26,14 @@ _ice_servers = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
 if TURN_URL:
     _ice_servers.append(RTCIceServer(urls=TURN_URL, username=TURN_USER, credential=TURN_PASS))
 
+_yolo_model = None
+def get_yolo():
+    global _yolo_model
+    if _yolo_model is None:
+        from ultralytics import YOLO
+        _yolo_model = YOLO(Path(__file__).parent / "marine.pt")
+    return _yolo_model
+
 config = RTCConfiguration(iceServers=_ice_servers)
 
 
@@ -34,6 +42,7 @@ class OfferRequest(BaseModel):
     type: str = Field(description="SDP type")
     source_type: str = Field(description="Video source type")
     source_id: str | int = Field(description="File path or camera index")
+    yolo: bool = Field(default=False, description="Enables YOLO detection")
 
 
 class OfferResponse(BaseModel):
@@ -51,10 +60,11 @@ class VideoSources(BaseModel):
 
 
 class CvTrack(VideoStreamTrack):
-    def __init__(self, source: str | int, loop: bool = False):
+    def __init__(self, source: str | int, loop: bool = False, yolo: bool = False):
         super().__init__()
         self.cap = cv2.VideoCapture(source)
         self.loop = loop
+        self.yolo = yolo
 
     async def recv(self) -> VideoFrame:
         loop = asyncio.get_running_loop()
@@ -65,6 +75,9 @@ class CvTrack(VideoStreamTrack):
                 ret, frame = await loop.run_in_executor(None, self.cap.read)
             if not ret:
                 raise Exception("Failed to read frame")
+        if self.yolo:
+            results = await loop.run_in_executor(None, lambda: get_yolo()(frame, verbose=False)[0])
+            frame = results.plot()
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         video_frame = VideoFrame.from_ndarray(frame, format="rgb24")
         pts, time_base = await self.next_timestamp()
@@ -195,7 +208,7 @@ async def post_offer(request: Request, offer: OfferRequest) -> OfferResponse:
     peer_conns.clear()
     peer_conn = RTCPeerConnection(configuration=config)
     source = str(video_dir / offer.source_id) if offer.source_type == "video" else int(offer.source_id)
-    track = CvTrack(source, loop=offer.source_type == "video")
+    track = CvTrack(source, loop=offer.source_type == "video", yolo=offer.yolo)
     peer_conn.addTrack(track)
     await peer_conn.setRemoteDescription(RTCSessionDescription(sdp=offer.sdp, type=offer.type))
     answer = await peer_conn.createAnswer()

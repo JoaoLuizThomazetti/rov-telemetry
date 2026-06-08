@@ -14,5 +14,6 @@ dependencies = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
     "python-multipart>=0.0.30",
+    "ultralytics>=8.4.61",
     "uvicorn>=0.48.0",
 ]
