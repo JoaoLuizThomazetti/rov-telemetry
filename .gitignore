@@ -15,6 +15,12 @@ frontend/dist/
 # Data
 *.mcap
 
+# YOLO / ML
+*.pt
+!vision/marine.pt
+runs/
+training/Underwater-Marine-Species-6/
+
 # Env
 .env
 
