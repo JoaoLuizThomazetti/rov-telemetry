@@ -43,6 +43,13 @@ const typeSource = computed(() => {
       class="mr-8"
     />
 
+    <v-checkbox
+      v-model="rtc.yolo.value"
+      label="AI detection"
+      hide-details
+      :disabled="rtc.connected.value"
+    />
+
     <div v-if="sourceType === 'video'">
       <v-btn width="130" class="ml-3" @click="triggerVideoInput">Upload</v-btn>
       <input ref="videoInput" type="file" class="d-none" accept=".mp4" @change="rtc.uploadVideo" />
