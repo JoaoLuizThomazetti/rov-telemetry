@@ -9,6 +9,7 @@ const connected = ref<boolean>(false);
 const stream = ref<MediaStream | null>(null);
 const sources = ref<VideoSources>();
 const sourceId = ref<string | number | null>(null);
+const yolo = ref<boolean>(false)
 
 let peer_conn: RTCPeerConnection | null = null;
 let initialized = false;
@@ -53,6 +54,7 @@ export function useWebRTC() {
       type: offer.type,
       source_type: sourceType,
       source_id: sourceId,
+      yolo: yolo.value,
     };
     const response = await fetch("/vision/offer", {
       method: "POST",
@@ -146,6 +148,7 @@ export function useWebRTC() {
     error,
     errorMessage,
     confirmDelVideo,
+    yolo,
     connect,
     disconnect,
     fetchSources,
