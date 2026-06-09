@@ -1,99 +1,184 @@
 import math
 import pytest
-from pymavlink import mavutil
-from unittest.mock import patch, MagicMock
-from main import (
-    simulate_attitude,
-    simulate_position,
-    send_heartbeat,
-    send_attitude,
-    send_global_position,
-)
+from unittest.mock import patch, MagicMock, AsyncMock
+from fastapi.testclient import TestClient
+from main import app, sim_roll, sim_pitch, sim_yaw, sim_depth, sim_speed, sim_batt, TASKS
 
 
-# ======== simulation
-def test_simulate_attitude(): 
-    roll, pitch, yaw = simulate_attitude(0.0)
-    assert roll == 0.0
-    assert pitch == 0.0
-    assert yaw == 0.0
-    roll, pitch, yaw = simulate_attitude(10.0)
-    assert roll == -0.16320633326681092
-    assert pitch == 0.09854798980781836
-    assert yaw ==  1.0
+@pytest.fixture
+def client():
+    app.state.simulation = MagicMock()
+    app.state.serial_proxy = MagicMock()
+    app.state.source = None
+    app.state.port = None
+    app.state.running = False
+    with patch("main.get_conn"):
+        yield TestClient(app)
 
 
-def test_simulate_attitude_ranges():
-    for t in [t * 0.1 for t in range(0, 1000)]:
-        roll, pitch, yaw = simulate_attitude(t)
-        assert -0.3 <= roll <= 0.3
-        assert -0.15 <= pitch <= 0.15
-        assert 0.0 <= yaw < 2 * math.pi
+def test_sim_roll_range():
+    with patch("main.BOOT_TIME", 0):
+        for t in range(0, 100):
+            with patch("main.time.time", return_value=float(t)):
+                assert -0.05 <= sim_roll() <= 0.05
 
 
-def test_simulate_position(): 
-    lat, lon, alt, head = simulate_position(0.0)
-    assert lat == -275969000
-    assert lon == -485494000
-    assert alt == 10000
-    assert head == 0
-    lat, lon, alt, head = simulate_position(10.0)
-    assert lat == -275968858
-    assert lon == -485495989
-    assert alt == 8082
-    assert head == 5000
+def test_sim_pitch_range():
+    with patch("main.BOOT_TIME", 0):
+        for t in range(0, 100):
+            with patch("main.time.time", return_value=float(t)):
+                assert -0.03 <= sim_pitch() <= 0.03
 
 
-def test_simulate_position_ranges():
-    for t in [t * 0.1 for t in range(0, 1000)]:
-        lat, lon, alt, head = simulate_position(t)
-        assert -275970000 <= lat <= -275968000
-        assert -485496000 <= lon <= -485494000
-        assert 8000 <= alt <= 12000
-        assert 0 <= head <= 35999
+def test_sim_yaw_wraps():
+    with patch("main.BOOT_TIME", 0):
+        for t in range(0, 100):
+            with patch("main.time.time", return_value=float(t)):
+                assert 0.0 <= sim_yaw() < math.tau
 
 
-# ======== send mav messages
-def test_send_heartbeat():
-    with patch('main.CONN') as mock_conn:
-        mock_conn.mav.heartbeat_send = MagicMock()
-        send_heartbeat(0)
-        mock_conn.mav.heartbeat_send.assert_called_once_with(
-            mavutil.mavlink.MAV_TYPE_SUBMARINE,
-            mavutil.mavlink.MAV_AUTOPILOT_GENERIC,
-            0, 0,
-            mavutil.mavlink.MAV_STATE_ACTIVE,
-            3
-        )
+def test_sim_depth_range():
+    with patch("main.BOOT_TIME", 0):
+        for t in range(0, 100):
+            with patch("main.time.time", return_value=float(t)):
+                assert 0.5 <= sim_depth() <= 3.5
 
 
-def test_send_attitude():
-    with patch('main.CONN') as mock_conn:
-        with patch('main.time.time', return_value=10):
-            mock_conn.mav.attitude_send = MagicMock()
-            send_attitude(0)
-            mock_conn.mav.attitude_send.assert_called_once_with(
-                10000,
-                -0.16320633326681092,
-                0.09854798980781836,
-                1.0,
-                0.0,
-                0.0,
-                0.0
-            )
+def test_sim_speed_range():
+    with patch("main.BOOT_TIME", 0):
+        for t in range(0, 100):
+            with patch("main.time.time", return_value=float(t)):
+                assert 0.2 <= sim_speed() <= 0.8
 
 
-def test_send_global_position():
-    with patch('main.CONN') as mock_conn:
-        with patch('main.time.time', return_value=10):
-            mock_conn.mav.global_position_int_send = MagicMock()
-            send_global_position(0)
-            mock_conn.mav.global_position_int_send.assert_called_once_with(
-                10000,
-                -275968858,
-                -485495989,
-                8082,
-                0,
-                0, 0, 0,
-                5000
-            )
+def test_sim_batt_decreases():
+    with patch("main.BOOT_TIME", 0):
+        with patch("main.time.time", return_value=0.0):
+            b0 = sim_batt()
+        with patch("main.time.time", return_value=200.0):
+            b1 = sim_batt()
+    assert b1 < b0
+
+
+def test_sim_batt_never_negative():
+    with patch("main.BOOT_TIME", 0):
+        with patch("main.time.time", return_value=1e7):
+            assert sim_batt() >= 0
+
+
+def test_health(client):
+    response = client.get("/health")
+    assert response.status_code == 200
+    assert response.json() == {"status": "ok"}
+
+
+def test_status_initial_state(client):
+    response = client.get("/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["running"] == False
+    assert data["source"] is None
+    assert data["port"] is None
+
+
+def test_status_after_start(client):
+    client.post("/start?source=simulation")
+    response = client.get("/status")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["running"] == True
+    assert data["source"] == "simulation"
+
+
+def test_ports_no_devices(client):
+    with patch("main.serial.tools.list_ports.comports", return_value=[]):
+        response = client.get("/ports")
+        assert response.status_code == 200
+        assert response.json() == []
+
+
+def test_ports_with_mavlink_device(client):
+    mock_port = MagicMock()
+    mock_port.device = "/dev/ttyUSB0"
+    with patch("main.serial.tools.list_ports.comports", return_value=[mock_port]):
+        with patch("main.test_if_mavlink", new_callable=AsyncMock, return_value=True):
+            response = client.get("/ports")
+            assert response.status_code == 200
+            assert "/dev/ttyUSB0" in response.json()
+
+
+def test_ports_device_without_mavlink(client):
+    mock_port = MagicMock()
+    mock_port.device = "/dev/ttyUSB0"
+    with patch("main.serial.tools.list_ports.comports", return_value=[mock_port]):
+        with patch("main.test_if_mavlink", new_callable=AsyncMock, return_value=False):
+            response = client.get("/ports")
+            assert response.status_code == 200
+            assert response.json() == []
+
+
+def test_start_simulation(client):
+    response = client.post("/start?source=simulation")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "simulation"
+    assert data["running"] == True
+    assert data["port"] is None
+    app.state.simulation.start.assert_called_once_with(TASKS)
+
+
+def test_start_serial(client):
+    response = client.post("/start?source=serial&port=/dev/ttyUSB0")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["source"] == "serial"
+    assert data["port"] == "/dev/ttyUSB0"
+    assert data["running"] == True
+    app.state.serial_proxy.start.assert_called_once()
+
+
+def test_start_invalid_source(client):
+    response = client.post("/start?source=invalid")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Source not found"
+
+
+def test_start_simulation_stops_serial(client):
+    app.state.serial_proxy.running = True
+    client.post("/start?source=simulation")
+    app.state.serial_proxy.stop.assert_called_once()
+
+
+def test_start_serial_stops_simulation(client):
+    app.state.simulation.running = True
+    client.post("/start?source=serial&port=/dev/ttyUSB0")
+    app.state.simulation.stop.assert_called_once()
+
+
+def test_stop_simulation(client):
+    app.state.source = "simulation"
+    app.state.running = True
+    response = client.post("/stop?source=simulation")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["running"] == False
+    assert data["source"] is None
+    assert data["port"] is None
+    app.state.simulation.stop.assert_called_once()
+
+
+def test_stop_serial(client):
+    app.state.source = "serial"
+    app.state.port = "/dev/ttyUSB0"
+    app.state.running = True
+    response = client.post("/stop?source=serial")
+    assert response.status_code == 200
+    data = response.json()
+    assert data["running"] == False
+    app.state.serial_proxy.stop.assert_called_once()
+
+
+def test_stop_invalid_source(client):
+    response = client.post("/stop?source=invalid")
+    assert response.status_code == 404
+    assert response.json()["detail"] == "Source not found"

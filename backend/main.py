@@ -76,7 +76,7 @@ def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop) -> None:
             broadcast(app.state.ws_clients, payload),
             loop
         )
-    session.declare_subscriber("rov/**", on_message)
+    sub = session.declare_subscriber("rov/**", on_message)
     while True:
         time.sleep(1)
 

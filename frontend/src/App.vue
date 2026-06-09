@@ -9,6 +9,7 @@ import McapControls from "./components/McapControls.vue";
 import MavLinkCards from "./components/MavLinkCards.vue";
 import StreamControls from "./components/StreamControls.vue";
 import RecorderControls from "./components/RecorderControls.vue";
+import SimulatorControls from "./components/SimulatorControls.vue";
 
 const mode = ref<"live" | "replay">("live");
 const videoElement = ref<HTMLVideoElement | null>(null);
@@ -46,20 +47,16 @@ watchEffect(() => {
     <v-main>
       <v-container fluid class="pa-0" style="height: calc(100vh - 64px)">
         <v-row no-gutters style="height: 100%">
-
           <v-col style="border-right: 1px solid #2f2f2f; height: 100%; flex: 0 0 430px">
-            <v-card flat class="pa-3 pl-7 mb-1 mt-1">
-              <div class="d-flex justify-space-between">
-                <span class="text-h6">MAVLink Messages</span>
-                <div v-if="mode === 'live'" class="d-flex align-center mr-3">
-                  <v-icon :color="ws.connected ? 'green' : 'red'" size="15" class="mr-2"
-                    >mdi-circle</v-icon
-                  >
-                  <span class="text-h6">{{ ws.connected ? "Connected" : "Disconnected" }}</span>
-                </div>
-                <span v-else class="text-h6 mr-2">MCAP Reader</span>
-              </div>
-            </v-card>
+            <div class="d-flex pa-3 justify-space-between align-center">
+              <span class="text-h6">Backend server:</span>
+              <span class="text-h6">
+                <v-icon :color="ws.connected ? 'green' : 'red'" size="15" class="mr-2">
+                  mdi-circle
+                </v-icon>
+                {{ ws.connected ? "Connected" : "Disconnected" }}
+              </span>
+            </div>
             <v-divider />
             <MavLinkCards
               :currentHeartbeat="currentHeartbeat"
@@ -68,6 +65,7 @@ watchEffect(() => {
             />
             <RecorderControls :connected="ws.connected.value" v-if="mode === 'live'" />
             <McapControls :mode="mode" v-if="mode === 'replay'" />
+            <SimulatorControls v-if="mode === 'live'" />
           </v-col>
 
           <v-col style="height: 100%; display: flex; flex-direction: column">
