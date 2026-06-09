@@ -41,6 +41,8 @@ services:
 
   mavlink-simulator:
     build: ./mavlink-simulator
+    privileged: true
+    volumes: ["/dev:/dev"]
     environment:
       - MAVLINK_TARGET=udpout:mavlink-bridge:14550
       - PYTHONUNBUFFERED=1
