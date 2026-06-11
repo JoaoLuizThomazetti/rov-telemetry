@@ -23,57 +23,63 @@ const typeSource = computed(() => {
 </script>
 
 <template>
-  <div class="d-flex align-center gap-3">
-    <v-radio-group v-model="sourceType" inline hide-details class="ma-4">
-      <v-radio class="mr-3" label="Camera" value="camera" />
-      <v-radio class="mr-3" label="Video" value="video" />
-    </v-radio-group>
+  <div class="d-flex flex-column">
+    <div class="d-flex align-center gap-3">
+      <v-radio-group v-model="sourceType" inline hide-details class="ma-4">
+        <v-radio class="mr-3" label="Camera" value="camera" />
+        <v-radio class="mr-3" label="Video" value="video" />
+      </v-radio-group>
 
-    <v-btn icon class="mr-2" @click="rtc.fetchSources" variant="text">
-      <v-icon>mdi-refresh</v-icon>
-    </v-btn>
+      <v-btn icon class="mr-2" @click="rtc.fetchSources" variant="text">
+        <v-icon>mdi-refresh</v-icon>
+      </v-btn>
 
-    <v-select
-      v-model="rtc.sourceId.value"
-      :label="sourceType === 'video' ? 'Choose file' : 'Choose camera'"
-      :items="typeSource"
-      width="250px"
-      density="compact"
-      hide-details
-      class="mr-8"
-    />
+      <v-select
+        v-model="rtc.sourceId.value"
+        :label="sourceType === 'video' ? 'Choose file' : 'Choose camera'"
+        :items="typeSource"
+        width="250px"
+        density="compact"
+        hide-details
+        class="mr-5"
+      />
 
-    <v-checkbox
-      v-model="rtc.yolo.value"
-      label="AI detection"
-      hide-details
-      :disabled="rtc.connected.value"
-    />
+      <v-checkbox
+        v-model="rtc.yolo.value"
+        label="AI detection"
+        hide-details
+        :disabled="rtc.connected.value"
+        class="mr-2"
+      />
 
-    <div v-if="sourceType === 'video'">
-      <v-btn width="130" class="ml-3" @click="triggerVideoInput">Upload</v-btn>
-      <input ref="videoInput" type="file" class="d-none" accept=".mp4" @change="rtc.uploadVideo" />
       <v-btn
-        width="130"
+        width="105"
         class="ml-3"
-        :disabled="!rtc.sourceId.value"
-        @click="rtc.confirmDelVideo.value = true"
-        >Delete</v-btn
+        :disabled="rtc.connected.value || rtc.sourceId.value == null"
+        @click="rtc.connect(sourceType, rtc.sourceId.value)"
       >
+        {{ sourceType === "camera" ? "Connect" : "Play" }}
+      </v-btn>
+
+      <v-btn width="105" class="ml-3 mr-3" :disabled="!rtc.connected.value" @click="rtc.disconnect">
+        {{ sourceType === "camera" ? "Disconnect" : "Stop" }}
+      </v-btn>
+
+      <div v-if="sourceType === 'video'">
+        <v-btn width="105" class="mr-3" @click="triggerVideoInput">Upload</v-btn>
+        <input
+          ref="videoInput"
+          type="file"
+          class="d-none"
+          accept=".mp4"
+          @change="rtc.uploadVideo"
+        />
+
+        <v-btn width="105" :disabled="!rtc.sourceId.value" @click="rtc.confirmDelVideo.value = true"
+          >Delete</v-btn
+        >
+      </div>
     </div>
-
-    <v-btn
-      width="130"
-      class="ml-3"
-      :disabled="rtc.connected.value || rtc.sourceId.value == null"
-      @click="rtc.connect(sourceType, rtc.sourceId.value)"
-    >
-      {{ sourceType === "camera" ? "Connect" : "Play" }}
-    </v-btn>
-
-    <v-btn width="130" class="ml-3" :disabled="!rtc.connected.value" @click="rtc.disconnect">
-      {{ sourceType === "camera" ? "Disconnect" : "Stop" }}
-    </v-btn>
   </div>
 
   <v-dialog v-model="rtc.confirmDelVideo.value" max-width="400">
