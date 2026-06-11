@@ -8,7 +8,7 @@ const props = defineProps<{
 
 const fileInput = ref<HTMLInputElement | null>(null);
 const mcap = useMcapReplay();
-const fileSelected = ref<boolean>(false)
+const fileSelected = ref<boolean>(false);
 
 function triggerFileInput() {
   fileInput.value?.click();
@@ -20,71 +20,72 @@ const formatTime = (us: number): string => {
 };
 
 const handleDeleteFile = () => {
-  fileSelected.value = false
-  mcap.deleteFile()
-}
+  fileSelected.value = false;
+  mcap.deleteFile();
+};
 
 const handleSelectMcap = () => {
-  fileSelected.value = true
-  mcap.fetchFile()
-}
-
+  fileSelected.value = true;
+  mcap.fetchFile();
+};
 </script>
 
 <template>
+  <v-divider class="mt-1" />
   <div style="border-top: 1px solid #2f2f2f; padding: 12px">
-    <div class="d-flex justify-space-evenly align-center mt-1 mb-5">
-      <!-- <v-btn width="130" @click="triggerFileInput">upload</v-btn> -->
-      <!-- <input ref="fileInput" type="file" class="d-none" accept=".mcap" @change="mcap.uploadFile" /> -->
-      <v-btn width="130" @click="mcap.downloadFile" :disabled="!mcap.selectedFile.value"
-        >download</v-btn
-      >
-      <v-btn width="130" @click="mcap.confirmDelete.value = true" :disabled="!mcap.selectedFile.value"
-        >delete</v-btn
-      >
+    <div class="d-flex align-start gap-4 ma-2 mb-3">
+      <div class="d-flex flex-column flex-grow-1 gap-2">
+        <v-select
+          width="350px"
+          class="mr-2 mb-1"
+          v-model="mcap.selectedFile.value"
+          label="Choose .mcap file"
+          :items="mcap.files.value"
+          hide-details
+          @update:modelValue="handleSelectMcap"
+        />
+        <v-text-field
+          width="150px"
+          v-model="mcap.limit.value"
+          type="number"
+          label="Max messages"
+          hide-details
+          :rules="[(v) => v >= 1 || 'Min 1', (v) => v <= 10000 || 'Max 10000']"
+        />
+      </div>
+
+      <div class="d-flex flex-column gap-2">
+        <v-btn
+          class="ma-1 mb-4"
+          width="130"
+          @click="mcap.downloadFile"
+          :disabled="!mcap.selectedFile.value"
+          >Download</v-btn
+        >
+        <v-btn
+          class="ma-1"
+          width="130"
+          @click="mcap.confirmDelete.value = true"
+          :disabled="!mcap.selectedFile.value"
+          >Delete</v-btn
+        >
+      </div>
     </div>
 
-    <div class="d-flex align-center gap-2 ma-2">
-      <v-select
-        v-model="mcap.selectedFile.value"
-        label="Choose .mcap file"
-        :items="mcap.files.value"
-        style="width: 260px"
-        class="mr-3"
-        @update:modelValue="handleSelectMcap"
+    <v-card elevation="2" class="mt-1" v-if="fileSelected">
+      <div class="d-flex align-center gap-2 ma-2 mb-0 justify-space-between">
+        <p class="text-subtitle-1">{{ formatTime(mcap.minTime.value) }}</p>
+        <p class="text-h6" style="color: #1D9E75">{{ formatTime(mcap.currentTime.value).split(", ")[1] }}</p>
+        <p class="text-subtitle-1">{{ formatTime(mcap.maxTime.value) }}</p>
+      </div>
+      <v-slider
+        class="ml-5 mr-5"
+        v-model="mcap.currentTime.value"
+        :min="mcap.minTime.value"
+        :max="mcap.maxTime.value"
       />
-      <v-text-field
-        width="120"
-        v-model="mcap.limit.value"
-        type="number"
-        label="Max messages"
-        :rules="[(v) => v >= 1 || 'Min 1', (v) => v <= 10000 || 'Max 10000']"
-      />
-    </div>
+    </v-card>
   </div>
-  <!-- <div class="d-flex align-center gap-2 ma-2 justify-space-between">
-    <v-btn width="160" class="ml-8" @click="mcap.fetchFiles">Refresh list</v-btn>
-    <v-btn width="160" class="mr-8" :disabled="!mcap.selectedFile.value" @click="mcap.fetchFile"
-      >Read .mcap file</v-btn
-    >
-  </div> -->
-
-  <v-card elevation="2" class="pa-2" v-if="fileSelected">
-    <div class="d-flex align-center gap-2 ma-2 justify-space-between">
-      <p class="text-subtitle-1">{{ formatTime(mcap.minTime.value) }}</p>
-      <v-icon>mdi-arrow-right</v-icon>
-      <p class="text-subtitle-1">{{ formatTime(mcap.maxTime.value) }}</p>
-    </div>
-    <v-slider
-      class="ml-5 mr-5"
-      v-model="mcap.currentTime.value"
-      :min="mcap.minTime.value"
-      :max="mcap.maxTime.value"
-    />
-    <div class="d-flex justify-center mb-5">
-      <p class="text-h6">{{ formatTime(mcap.currentTime.value) }}</p>
-    </div>
-  </v-card>
 
   <v-dialog v-model="mcap.confirmDelete.value" max-width="400">
     <v-card>

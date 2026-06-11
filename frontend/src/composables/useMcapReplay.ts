@@ -1,5 +1,13 @@
 import { ref, computed, onMounted, onUnmounted } from "vue";
-import type { Heartbeat, Attitude, GlobalPosition } from "./useWebSocket";
+import type {
+  Heartbeat,
+  Attitude,
+  GlobalPosition,
+  SysStatus,
+  VfrHud,
+  ScaledPressure2,
+  BatteryStatus,
+} from "./useWebSocket";
 
 interface McapMessage {
   topic: string;
@@ -63,7 +71,27 @@ export function useMcapReplay() {
 
   const position = computed(
     (): GlobalPosition | null =>
-      (timeMessage(messagesByTopic.value["rov/position"] ?? [])?.data as GlobalPosition) ?? null,
+      (timeMessage(messagesByTopic.value["rov/global_position"] ?? [])?.data as GlobalPosition) ?? null,
+  );
+
+  const sysStatus = computed(
+    (): SysStatus | null =>
+      (timeMessage(messagesByTopic.value["rov/sys_status"] ?? [])?.data as SysStatus) ?? null,
+  );
+
+  const vfrHud = computed(
+    (): VfrHud | null =>
+      (timeMessage(messagesByTopic.value["rov/vfr_hud"] ?? [])?.data as VfrHud) ?? null,
+  );
+
+  const pressure = computed(
+    (): ScaledPressure2 | null =>
+      (timeMessage(messagesByTopic.value["rov/scaled_pressure2"] ?? [])?.data as ScaledPressure2) ?? null,
+  );
+
+  const battery = computed(
+    (): BatteryStatus | null =>
+      (timeMessage(messagesByTopic.value["rov/battery_status"] ?? [])?.data as BatteryStatus) ?? null,
   );
 
   const downloadFile = () => {
@@ -163,6 +191,10 @@ export function useMcapReplay() {
     heartbeat,
     attitude,
     position,
+    sysStatus,
+    vfrHud,
+    pressure,
+    battery,
     downloadFile,
     uploadFile,
     deleteFile,

@@ -1,83 +1,9 @@
+mod handle_messages;
+
+use crate::handle_messages::*;
 use mavlink::{MavConnection, MavHeader};
-use serde::{Deserialize, Serialize};
-use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::signal::unix::{signal, SignalKind};
-use mavlink::ardupilotmega::{
-    MavMessage,
-    MavState,
-    MavType,
-    MavAutopilot,
-    MavModeFlag,
-    HEARTBEAT_DATA,
-    ATTITUDE_DATA,
-    GLOBAL_POSITION_INT_DATA,
-
-};
-
-
-#[derive(Serialize, Deserialize)]
-struct Heartbeat {
-    system_id: u8,
-    status: String,
-    timestamp_us: u64,
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct Attitude {
-    roll: f64,
-    pitch: f64,
-    yaw: f64,
-    timestamp_us: u64,
-}
-
-
-#[derive(Serialize, Deserialize)]
-struct GlobalPosition {
-    lat: f64,
-    lon: f64,
-    alt_m: f64,
-    heading_deg: f64,
-    timestamp_us: u64,
-}
-
-
-fn now_us() -> u64 {
-    SystemTime::now()
-    .duration_since(UNIX_EPOCH)
-    .expect("Error")
-    .as_micros() as u64
-}
-
-
-fn parse_heartbeat(header: &mavlink::MavHeader, hb: &HEARTBEAT_DATA, ts: u64) -> Heartbeat {
-    Heartbeat {
-        system_id: header.system_id,
-        status: format!("{:?}", hb.system_status),
-        timestamp_us: ts,
-    }
-}
-
-
-fn parse_attitude(att: &ATTITUDE_DATA, ts: u64) -> Attitude {
-    Attitude {
-        roll: att.roll as f64,
-        pitch: att.pitch as f64,
-        yaw: att.yaw as f64,
-        timestamp_us: ts,
-    }
-}
-
-
-fn parse_global_position(pos: &GLOBAL_POSITION_INT_DATA, ts: u64) -> GlobalPosition {
-    GlobalPosition {
-        lat: pos.lat as f64 / 1e7,
-        lon: pos.lon as f64 / 1e7,
-        alt_m: pos.alt as f64 / 1000.0,
-        heading_deg: if pos.hdg == 65535 { 0.0 } else { pos.hdg as f64 / 100.0 },
-        timestamp_us: ts,
-    }
-}
+use mavlink::ardupilotmega::MavMessage;
 
 
 #[tokio::main]
@@ -91,10 +17,14 @@ async fn main() -> anyhow::Result<()>{
     let session = zenoh::open(config).await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let pub_heartbeat = session.declare_publisher("rov/heartbeat").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let pub_sys_status = session.declare_publisher("rov/sys_status").await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let pub_attitude = session.declare_publisher("rov/attitude").await.map_err(|e| anyhow::anyhow!("{e}"))?;
-    let pub_position = session.declare_publisher("rov/position").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let pub_global_position = session.declare_publisher("rov/global_position").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let pub_vfr_hud = session.declare_publisher("rov/vfr_hud").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let pub_scaled_pressure2 = session.declare_publisher("rov/scaled_pressure2").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let pub_battery_status = session.declare_publisher("rov/battery_status").await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
-    let (tx, mut rx) = tokio::sync::mpsc::channel::<(mavlink::MavHeader, MavMessage)>(100);
+    let (tx, mut rx) = tokio::sync::mpsc::channel::<(MavHeader, MavMessage)>(100);
 
     std::thread::spawn(move || {
         let mavlink_udp = std::env::var("MAVLINK_LISTEN").unwrap_or_else(|_| "udpin:0.0.0.0:14550".to_string());
@@ -127,17 +57,37 @@ async fn main() -> anyhow::Result<()>{
                         MavMessage::HEARTBEAT(hb) => {
                             let hb_data = parse_heartbeat(&header, &hb, now_us());
                             pub_heartbeat.put(serde_json::to_string(&hb_data)?)
-                            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                        },
+                        MavMessage::SYS_STATUS(sys) => {
+                            let sys_data = parse_sys_status(&sys, now_us());
+                            pub_sys_status.put(serde_json::to_string(&sys_data)?)
+                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
                         },
                         MavMessage::ATTITUDE(att) => {
                             let att_data = parse_attitude(&att, now_us());
                             pub_attitude.put(serde_json::to_string(&att_data)?)
-                            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
                         },
                         MavMessage::GLOBAL_POSITION_INT(pos) => {
                             let pos_data = parse_global_position(&pos, now_us());
-                            pub_position.put(serde_json::to_string(&pos_data)?)
-                            .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            pub_global_position.put(serde_json::to_string(&pos_data)?)
+                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                        },
+                        MavMessage::VFR_HUD(hud) => {
+                            let hud_data = parse_vfr_hud(&hud, now_us());
+                            pub_vfr_hud.put(serde_json::to_string(&hud_data)?)
+                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                        },
+                        MavMessage::SCALED_PRESSURE2(pres) => {
+                            let pres_data = parse_scaled_pressure2(&pres, now_us());
+                            pub_scaled_pressure2.put(serde_json::to_string(&pres_data)?)
+                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                        },
+                        MavMessage::BATTERY_STATUS(bat) => {
+                            let bat_data = parse_battery_status(&bat, now_us());
+                            pub_battery_status.put(serde_json::to_string(&bat_data)?)
+                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
                         },
                         _ => {}
                     }
@@ -149,9 +99,15 @@ async fn main() -> anyhow::Result<()>{
 }
 
 
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use mavlink::ardupilotmega::{
+        MavState, MavType, MavAutopilot, MavModeFlag,
+        HEARTBEAT_DATA, ATTITUDE_DATA, GLOBAL_POSITION_INT_DATA,
+        VFR_HUD_DATA, SCALED_PRESSURE2_DATA,
+    };
 
     #[test]
     fn test_parse_heartbeat() {
@@ -165,10 +121,11 @@ mod tests {
             mavlink_version: 3,
         };
         let ts = now_us();
-        let hb_data = parse_heartbeat(&header, &hb, ts);
-        assert_eq!(hb_data.system_id, 1);
-        assert_eq!(hb_data.status, "MAV_STATE_ACTIVE");
-        assert_eq!(hb_data.timestamp_us, ts);
+        let result = parse_heartbeat(&header, &hb, ts);
+        assert_eq!(result.system_id, 1);
+        assert_eq!(result.component_id, 1);
+        assert_eq!(result.system_status, MavState::MAV_STATE_ACTIVE as u8);
+        assert_eq!(result.timestamp_ms, ts);
     }
 
     #[test]
@@ -178,16 +135,19 @@ mod tests {
             roll: 0.5_f32,
             pitch: 0.3_f32,
             yaw: 1.2_f32,
-            rollspeed: 0.0,
-            pitchspeed: 0.0,
-            yawspeed: 0.0,
+            rollspeed: 0.1_f32,
+            pitchspeed: 0.2_f32,
+            yawspeed: 0.3_f32,
         };
         let ts = now_us();
-        let att_data = parse_attitude(&att, ts);
-        assert_eq!(att_data.roll, 0.5_f32 as f64);
-        assert_eq!(att_data.pitch, 0.3_f32 as f64);
-        assert_eq!(att_data.yaw, 1.2_f32 as f64);
-        assert_eq!(att_data.timestamp_us, ts);
+        let result = parse_attitude(&att, ts);
+        assert_eq!(result.roll, 0.5_f32);
+        assert_eq!(result.pitch, 0.3_f32);
+        assert_eq!(result.yaw, 1.2_f32);
+        assert_eq!(result.rollspeed, 0.1_f32);
+        assert_eq!(result.pitchspeed, 0.2_f32);
+        assert_eq!(result.yawspeed, 0.3_f32);
+        assert_eq!(result.timestamp_ms, ts);
     }
 
     #[test]
@@ -202,12 +162,12 @@ mod tests {
             hdg: 18000_u16,
         };
         let ts = now_us();
-        let pos_data = parse_global_position(&pos, ts);
-        assert_eq!(pos_data.lat, -275969000_i32 as f64 / 1e7);
-        assert_eq!(pos_data.lon, -485495000_i32 as f64 / 1e7);
-        assert_eq!(pos_data.alt_m, 10000_i32 as f64 / 1000.0);
-        assert_eq!(pos_data.heading_deg, 18000_u16 as f64 / 100.0);
-        assert_eq!(pos_data.timestamp_us, ts);
+        let result = parse_global_position(&pos, ts);
+        assert_eq!(result.lat, -275969000_i32);
+        assert_eq!(result.lon, -485495000_i32);
+        assert_eq!(result.alt, 10000_i32);
+        assert_eq!(result.hdg, 18000_u16);
+        assert_eq!(result.timestamp_ms, ts);
     }
 
     #[test]
@@ -222,11 +182,44 @@ mod tests {
             hdg: 65535_u16,
         };
         let ts = now_us();
-        let pos_data = parse_global_position(&pos, ts);
-        assert_eq!(pos_data.lat, -275969000_i32 as f64 / 1e7);
-        assert_eq!(pos_data.lon, -485495000_i32 as f64 / 1e7);
-        assert_eq!(pos_data.alt_m, 10000_i32 as f64 / 1000.0);
-        assert_eq!(pos_data.heading_deg, 0.0);
-        assert_eq!(pos_data.timestamp_us, ts);
+        let result = parse_global_position(&pos, ts);
+        assert_eq!(result.hdg, 65535_u16);
+        assert_eq!(result.timestamp_ms, ts);
+    }
+
+    #[test]
+    fn test_parse_vfr_hud() {
+        let hud = VFR_HUD_DATA {
+            airspeed: 1.5_f32,
+            groundspeed: 1.2_f32,
+            alt: -2.5_f32,
+            climb: 0.1_f32,
+            heading: 271_i16,
+            throttle: 40_u16,
+        };
+        let ts = now_us();
+        let result = parse_vfr_hud(&hud, ts);
+        assert_eq!(result.airspeed, 1.5_f32);
+        assert_eq!(result.groundspeed, 1.2_f32);
+        assert_eq!(result.heading, 271_i16);
+        assert_eq!(result.throttle, 40_u16);
+        assert_eq!(result.alt, -2.5_f32);
+        assert_eq!(result.timestamp_ms, ts);
+    }
+
+    #[test]
+    fn test_parse_scaled_pressure2() {
+        let pres = SCALED_PRESSURE2_DATA {
+            time_boot_ms: 0,
+            press_abs: 1042.85_f32,
+            press_diff: 0.0_f32,
+            temperature: 2000_i16,
+        };
+        let ts = now_us();
+        let result = parse_scaled_pressure2(&pres, ts);
+        assert_eq!(result.press_abs, 1042.85_f32);
+        assert_eq!(result.press_diff, 0.0_f32);
+        assert_eq!(result.temperature, 2000_i16);
+        assert_eq!(result.timestamp_ms, ts);
     }
 }

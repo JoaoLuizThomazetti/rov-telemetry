@@ -9,7 +9,7 @@ const connected = ref<boolean>(false);
 const stream = ref<MediaStream | null>(null);
 const sources = ref<VideoSources>();
 const sourceId = ref<string | number | null>(null);
-const yolo = ref<boolean>(false)
+const yolo = ref<boolean>(false);
 
 let peer_conn: RTCPeerConnection | null = null;
 let initialized = false;

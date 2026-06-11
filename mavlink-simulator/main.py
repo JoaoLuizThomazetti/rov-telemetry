@@ -233,7 +233,7 @@ async def run_simulation(tasks: list[Task]) -> None:
 
 
 async def run_serial_proxy(port: str, baud: int) -> None:
-    reader, _ = await serial_asyncio.open_serial_connection(url=port, baudrate=baud)
+    reader, writer = await serial_asyncio.open_serial_connection(url=port, baudrate=baud)
     conn = get_conn()
     try:
         while True:
@@ -241,7 +241,8 @@ async def run_serial_proxy(port: str, baud: int) -> None:
             if data:
                 conn.write(data)
     finally:
-        reader.transport.close()
+        writer.close()
+        await writer.wait_closed()
 
 
 TASKS = [

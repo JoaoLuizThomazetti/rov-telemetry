@@ -17,22 +17,22 @@ const handleStopRecorder = async () => {
 </script>
 
 <template>
-  <div style="border-top: 1px solid #2f2f2f; padding: 12px">
-    <div class="d-flex justify-space-evenly align-center mt-1">
-      <v-btn width="130" :disabled="active || !connected" @click="startRecorder">
-        {{ recording ? "Recording" : "Record" }}
-      </v-btn>
-      <v-btn width="130" :disabled="!active" @click="handleStopRecorder">Stop</v-btn>
-    </div>
+  <div style="padding: 12px">
+    <v-divider />
+    <div class="d-flex align-center mt-2 mb-1 ml-2 mr-2 gap-2">
+      <v-card elevation="2" class="flex-grow-1 pa-5 ml-15 mr-15 d-flex justify-center align-center">
+        <span class="text-h6">{{ elapsedFormatted }}</span>
+        <v-icon :color="recording ? 'red' : 'grey'" size="20" class="ml-3">mdi-circle</v-icon>
+      </v-card>
 
-    <v-card elevation="2" class="pa-3 mt-5 ml-10 mr-10">
-      <div class="d-flex justify-center align-center">
-        <span class="text-h6 mr-3">{{ elapsedFormatted }}</span>
-        <v-icon :color="recording ? 'red' : 'grey'" size="20">mdi-circle</v-icon>
+      <div class="d-flex flex-column gap-2">
+        <v-btn class="ma-1" width="130" :disabled="active || !connected" @click="startRecorder">
+          {{ recording ? "Recording" : "Record" }}
+        </v-btn>
+        <v-btn class="ma-1" width="130" :disabled="!active" @click="handleStopRecorder">Stop</v-btn>
       </div>
-    </v-card>
+    </div>
   </div>
-
   <v-snackbar v-model="error" color="error" location="bottom" class="mb-5" :timeout="3000">
     {{ errorMessage }}
   </v-snackbar>
