@@ -67,6 +67,8 @@ class CvTrack(VideoStreamTrack):
         self.yolo = yolo
 
     async def recv(self) -> VideoFrame:
+        if self.cap is None:
+            raise Exception("Capture closed")
         loop = asyncio.get_running_loop()
         ret, frame = await loop.run_in_executor(None, self.cap.read)
         if not ret:
@@ -74,6 +76,8 @@ class CvTrack(VideoStreamTrack):
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 ret, frame = await loop.run_in_executor(None, self.cap.read)
             if not ret:
+                self.cap.release()
+                self.cap = None
                 raise Exception("Failed to read frame")
         if self.yolo:
             results = await loop.run_in_executor(None, lambda: get_yolo()(frame, verbose=False)[0])
@@ -86,7 +90,9 @@ class CvTrack(VideoStreamTrack):
         return video_frame
 
     def stop(self):
-        self.cap.release()
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
         super().stop()
 
 
