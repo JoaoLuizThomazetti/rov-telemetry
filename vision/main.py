@@ -67,6 +67,8 @@ class CvTrack(VideoStreamTrack):
         self.yolo = yolo
 
     async def recv(self) -> VideoFrame:
+        if self.cap is None:
+            raise Exception("Capture closed")
         loop = asyncio.get_running_loop()
         ret, frame = await loop.run_in_executor(None, self.cap.read)
         if not ret:
@@ -74,6 +76,8 @@ class CvTrack(VideoStreamTrack):
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                 ret, frame = await loop.run_in_executor(None, self.cap.read)
             if not ret:
+                self.cap.release()
+                self.cap = None
                 raise Exception("Failed to read frame")
         if self.yolo:
             results = await loop.run_in_executor(None, lambda: get_yolo()(frame, verbose=False)[0])
@@ -86,7 +90,9 @@ class CvTrack(VideoStreamTrack):
         return video_frame
 
     def stop(self):
-        self.cap.release()
+        if self.cap is not None:
+            self.cap.release()
+            self.cap = None
         super().stop()
 
 
@@ -159,8 +165,11 @@ async def get_sources(request: Request) -> VideoSources:
         for i in range(4):
             cap = cv2.VideoCapture(i)
             if cap.isOpened():
+                fourcc = int(cap.get(cv2.CAP_PROP_FOURCC))
+                ret, _ = cap.read()
                 cap.release()
-                sources.cameras.append(i)
+                if ret and fourcc != 0:
+                    sources.cameras.append(i)
     except Exception as e:
         logger.warning(f"Error: {e}")
     return sources
@@ -207,7 +216,15 @@ async def post_offer(request: Request, offer: OfferRequest) -> OfferResponse:
         await old.close()
     peer_conns.clear()
     peer_conn = RTCPeerConnection(configuration=config)
-    source = str(video_dir / offer.source_id) if offer.source_type == "video" else int(offer.source_id)
+    if offer.source_type == "video":
+        source = str(video_dir / offer.source_id)
+    else:
+        source = int(offer.source_id)
+        cap = cv2.VideoCapture(source)
+        readable = cap.isOpened() and cap.read()[0]
+        cap.release()
+        if not readable:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Camera {source} is not readable")
     track = CvTrack(source, loop=offer.source_type == "video", yolo=offer.yolo)
     peer_conn.addTrack(track)
     await peer_conn.setRemoteDescription(RTCSessionDescription(sdp=offer.sdp, type=offer.type))

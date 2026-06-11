@@ -31,6 +31,7 @@ services:
 
   vision:
     build: ./vision
+    restart: on-failure
     volumes: [vision_videos:/videos]
     environment:
       - VIDEO_DIR=/videos
