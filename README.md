@@ -2,7 +2,7 @@
 
 Real-time telemetry dashboard for ROV (Remotely Operated Vehicle) data.
 
-<img width="1851" height="1075" alt="Image" src="https://github.com/user-attachments/assets/ee7892df-d3a9-4dc6-bedd-5ef8bab215f2" />
+<img width="1843" height="1077" alt="Image" src="https://github.com/user-attachments/assets/732618eb-2332-4876-b3b9-2926bedc7533" />
 
 <video src="https://github.com/user-attachments/assets/cc36b317-5e2e-403d-9aac-1353dd43d19d" controls width="100%"></video>
 
