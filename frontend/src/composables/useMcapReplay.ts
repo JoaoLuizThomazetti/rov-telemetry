@@ -97,7 +97,7 @@ export function useMcapReplay() {
   const downloadFile = () => {
     if (!selectedFile.value) return;
     const a = document.createElement("a");
-    a.href = `/mcap/files/${selectedFile.value}`;
+    a.href = `/api/files/${selectedFile.value}`;
     a.download = selectedFile.value;
     a.click();
   };
@@ -109,7 +109,7 @@ export function useMcapReplay() {
     const form = new FormData();
     form.append("file", file);
     try {
-      const response = await fetch("/mcap/files", {
+      const response = await fetch("/api/files", {
         method: "POST",
         body: form,
       });
@@ -126,7 +126,7 @@ export function useMcapReplay() {
 
   const deleteFile = async () => {
     if (!selectedFile.value) return;
-    const response = await fetch(`/mcap/files/${selectedFile.value}`, {
+    const response = await fetch(`/api/files/${selectedFile.value}`, {
       method: "DELETE",
     });
     confirmDelete.value = false;
@@ -144,7 +144,7 @@ export function useMcapReplay() {
   };
 
   const fetchFiles = async () => {
-    const response = await fetch("/mcap/files");
+    const response = await fetch("/api/files");
     if (!response.ok) {
       errorMessage.value = await response.json().then((r) => r.detail);
       error.value = true;
@@ -166,7 +166,7 @@ export function useMcapReplay() {
 
   const fetchFile = async () => {
     if (!selectedFile.value) return;
-    const response = await fetch(`/mcap/messages/${selectedFile.value}?limit=${limit.value}`);
+    const response = await fetch(`/api/messages/${selectedFile.value}?limit=${limit.value}`);
     if (!response.ok) {
       errorMessage.value = await response.json().then((r) => r.detail);
       error.value = true;
