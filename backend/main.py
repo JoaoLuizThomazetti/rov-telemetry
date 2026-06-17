@@ -67,6 +67,7 @@ async def broadcast(ws_clients: set[WebSocket], payload: str) -> None:
 
 def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop) -> None:
     session = app.state.zenoh_session
+
     def on_message(sample):
         payload = json.dumps({
             "topic": str(sample.key_expr),
@@ -76,6 +77,7 @@ def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop) -> None:
             broadcast(app.state.ws_clients, payload),
             loop
         )
+
     sub = session.declare_subscriber("rov/**", on_message)
     while True:
         time.sleep(1)
@@ -119,10 +121,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 app = FastAPI(
     title="ROV Telemetry API",
-    description="MCAP recording management and live telemetry",
+    description="MCAP file management, zenoh query and live telemetry",
     version="1.0.0",
     lifespan=lifespan,
-    root_path="/mcap",
+    root_path="/api",
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
@@ -197,11 +199,34 @@ async def get_mcap_messages(request: Request, file_name: str, limit: int = Query
     mcap_dir = request.app.state.mcap_dir
     await check_file(mcap_dir, file_name)
     try:
-        messages = await asyncio.get_running_loop().run_in_executor(None, read_mcap, (mcap_dir / file_name).resolve(), limit)
+        messages = await asyncio.to_thread(read_mcap, (mcap_dir / file_name).resolve(), limit)
         return messages
     except Exception as e:
         print(f"Cant read file {file_name}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.get("/topic", tags=["ZENOH"], responses={
+    404: {"description": "Topic not found"},
+    500: {"description": "Failed to read topic"},
+})
+async def get_zenoh_topic_message(request: Request, topic: str = Query(description="Zenoh topic name")) -> dict:
+    """Get message from zenoh topic."""
+    session = request.app.state.zenoh_session
+
+    def query_sync() -> list[dict]:
+        for reply in session.get(topic):
+            if reply.ok:
+                return json.loads(bytes(reply.ok.payload).decode("utf-8"))
+        return {}
+
+    message = await asyncio.to_thread(query_sync)
+    if not message:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Topic not found",
+        )
+    return message
 
 
 @app.websocket("/ws/live")

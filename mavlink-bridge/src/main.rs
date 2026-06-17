@@ -4,12 +4,16 @@ use crate::handle_messages::*;
 use mavlink::{MavConnection, MavHeader};
 use tokio::signal::unix::{signal, SignalKind};
 use mavlink::ardupilotmega::MavMessage;
+use std::sync::Arc;
+use dashmap::DashMap;
 
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()>{
     env_logger::init();
     
+    let payload_cache: Arc<DashMap<String, String>> = Arc::new(DashMap::new());
+
     let connect = std::env::var("ZENOH_CONNECT").unwrap_or_else(|_| "tcp/localhost:7447".to_string());
     let config = zenoh::Config::from_json5(&format!(
         r#"{{"mode":"client","connect":{{"endpoints":["{connect}"]}}}}"#
@@ -23,6 +27,7 @@ async fn main() -> anyhow::Result<()>{
     let pub_vfr_hud = session.declare_publisher("rov/vfr_hud").await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let pub_scaled_pressure2 = session.declare_publisher("rov/scaled_pressure2").await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let pub_battery_status = session.declare_publisher("rov/battery_status").await.map_err(|e| anyhow::anyhow!("{e}"))?;
+    let queryable = session.declare_queryable("rov/**").await.map_err(|e| anyhow::anyhow!("{e}"))?;
 
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(MavHeader, MavMessage)>(100);
 
@@ -51,43 +56,56 @@ async fn main() -> anyhow::Result<()>{
         tokio::select! {
             _ = tokio::signal::ctrl_c() => break,
             _ = sigterm.recv() => break,
+            Ok(query) = queryable.recv_async() => {
+                let key = query.key_expr().to_string();
+                if let Some(payload) = payload_cache.get(&key) {
+                    let _ = query.reply(key, payload.clone()).await;
+                }
+            },
             msg = rx.recv() => {
                 if let Some((header, msg)) = msg {
                     match msg {
                         MavMessage::HEARTBEAT(hb) => {
                             let hb_data = parse_heartbeat(&header, &hb, now_us());
-                            pub_heartbeat.put(serde_json::to_string(&hb_data)?)
-                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            let str_hb_data = serde_json::to_string(&hb_data).map_err(|e| anyhow::anyhow!("{e}"))?;
+                            pub_heartbeat.put(&str_hb_data).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            payload_cache.insert(pub_heartbeat.key_expr().to_string(), str_hb_data.clone());
                         },
                         MavMessage::SYS_STATUS(sys) => {
                             let sys_data = parse_sys_status(&sys, now_us());
-                            pub_sys_status.put(serde_json::to_string(&sys_data)?)
-                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            let str_sys_data = serde_json::to_string(&sys_data).map_err(|e| anyhow::anyhow!("{e}"))?;
+                            pub_sys_status.put(&str_sys_data).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            payload_cache.insert(pub_sys_status.key_expr().to_string(), str_sys_data.clone());
                         },
                         MavMessage::ATTITUDE(att) => {
                             let att_data = parse_attitude(&att, now_us());
-                            pub_attitude.put(serde_json::to_string(&att_data)?)
-                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            let str_att_data = serde_json::to_string(&att_data).map_err(|e| anyhow::anyhow!("{e}"))?;
+                            pub_attitude.put(&str_att_data).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            payload_cache.insert(pub_attitude.key_expr().to_string(), str_att_data.clone());
                         },
                         MavMessage::GLOBAL_POSITION_INT(pos) => {
                             let pos_data = parse_global_position(&pos, now_us());
-                            pub_global_position.put(serde_json::to_string(&pos_data)?)
-                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            let str_pos_data = serde_json::to_string(&pos_data).map_err(|e| anyhow::anyhow!("{e}"))?;
+                            pub_global_position.put(&str_pos_data).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            payload_cache.insert(pub_global_position.key_expr().to_string(), str_pos_data.clone());
                         },
                         MavMessage::VFR_HUD(hud) => {
                             let hud_data = parse_vfr_hud(&hud, now_us());
-                            pub_vfr_hud.put(serde_json::to_string(&hud_data)?)
-                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            let str_hud_data = serde_json::to_string(&hud_data).map_err(|e| anyhow::anyhow!("{e}"))?;
+                            pub_vfr_hud.put(&str_hud_data).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            payload_cache.insert(pub_vfr_hud.key_expr().to_string(), str_hud_data.clone());
                         },
                         MavMessage::SCALED_PRESSURE2(pres) => {
                             let pres_data = parse_scaled_pressure2(&pres, now_us());
-                            pub_scaled_pressure2.put(serde_json::to_string(&pres_data)?)
-                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            let str_pres_data = serde_json::to_string(&pres_data).map_err(|e| anyhow::anyhow!("{e}"))?;
+                            pub_scaled_pressure2.put(&str_pres_data).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            payload_cache.insert(pub_scaled_pressure2.key_expr().to_string(), str_pres_data.clone());
                         },
                         MavMessage::BATTERY_STATUS(bat) => {
                             let bat_data = parse_battery_status(&bat, now_us());
-                            pub_battery_status.put(serde_json::to_string(&bat_data)?)
-                                .await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            let str_bat_data = serde_json::to_string(&bat_data).map_err(|e| anyhow::anyhow!("{e}"))?;
+                            pub_battery_status.put(&str_bat_data).await.map_err(|e| anyhow::anyhow!("{e}"))?;
+                            payload_cache.insert(pub_battery_status.key_expr().to_string(), str_bat_data.clone());
                         },
                         _ => {}
                     }
@@ -97,7 +115,6 @@ async fn main() -> anyhow::Result<()>{
     }
     Ok(())
 }
-
 
 
 #[cfg(test)]

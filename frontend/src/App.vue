@@ -1,15 +1,22 @@
 <script setup lang="ts">
+
 import { ref, computed, watchEffect } from "vue";
 
 import { useWebRTC } from "./composables/useWebRTC.ts";
 import { useWebSocket } from "./composables/useWebSocket.ts";
 import { useMcapReplay } from "./composables/useMcapReplay.ts";
+import { useZenohQuery } from "./composables/useZenohQuery.ts";
+import type { BatteryStatus } from "./composables/useWebSocket";
 
+import HudOverlay from "./components/HudOverlay.vue";
 import McapControls from "./components/McapControls.vue";
 import MavLinkCards from "./components/MavLinkCards.vue";
 import StreamControls from "./components/StreamControls.vue";
 import RecorderControls from "./components/RecorderControls.vue";
 import SimulatorControls from "./components/SimulatorControls.vue";
+import ArtificialHorizon from "./components/ArtificialHorizon.vue";
+
+const { data: batteryQuery } = useZenohQuery<BatteryStatus>("rov/battery_status");
 
 const mode = ref<"live" | "replay">("live");
 const videoElement = ref<HTMLVideoElement | null>(null);
@@ -45,6 +52,8 @@ watchEffect(() => {
 
 <template>
   <v-app>
+
+    <!-- header -->
     <v-app-bar>
       <div class="d-flex align-center ml-4">
         <span class="text-h6 mr-5 ml-2">Backend server:</span>
@@ -65,6 +74,8 @@ watchEffect(() => {
     <v-main>
       <v-container fluid class="pa-0" style="height: calc(100vh - 64px)">
         <v-row no-gutters style="height: 100%">
+
+          <!-- left col -->
           <v-col style="border-right: 1px solid #2f2f2f; height: 100%; flex: 0 0 600px">
             <MavLinkCards
               :currentHeartbeat="currentHeartbeat"
@@ -75,12 +86,17 @@ watchEffect(() => {
               :currentPressure="currentPressure"
               :currentBattery="currentBattery"
             />
+
+            <!-- controls -->
             <SimulatorControls v-if="mode === 'live'" />
             <RecorderControls :connected="ws.connected.value" v-if="mode === 'live'" />
             <McapControls :mode="mode" v-if="mode === 'replay'" />
           </v-col>
 
+          <!-- video col -->
           <v-col style="height: 100%; display: flex; flex-direction: column">
+
+            <!-- video row-->
             <v-row no-gutters style="flex: 1; min-height: 0">
               <v-col
                 cols="12"
@@ -90,8 +106,22 @@ watchEffect(() => {
                   display: flex;
                   align-items: center;
                   justify-content: center;
+                  position: relative;
                 "
               >
+                <!-- hud -->
+                <HudOverlay
+                  v-if="connected"
+                  :vfrHud="currentVfrHud"
+                  :battery="batteryQuery"
+                  style="position: absolute; top: 12px; right: 12px; z-index: 10"
+                />
+                <ArtificialHorizon
+                  v-if="connected"
+                  :attitude="currentAttitude"
+                />
+
+                <!-- video -->
                 <video
                   v-if="connected"
                   ref="videoElement"
@@ -103,6 +133,8 @@ watchEffect(() => {
                 <v-img v-else src="/disconnected.jpeg" style="max-width: 500px" class="mx-auto" />
               </v-col>
             </v-row>
+
+            <!-- video controls -->
             <div
               class="pl-10"
               style="
