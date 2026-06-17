@@ -65,14 +65,14 @@ def fake_mcap(path: Path, corrupt: bool = False) -> dict | None:
 
 # ======== get all files
 def test_get_files_without_mcap(client, tmp_path):
-    response = client.get("/mcap/files")
+    response = client.get("/api/files")
     assert response.status_code == 200
     assert response.json() == []
 
 
 def test_get_files_with_mcap(client, tmp_path): 
     fake_mcap(tmp_path / "test.mcap")
-    response = client.get("/mcap/files")
+    response = client.get("/api/files")
     assert response.status_code == 200
     assert response.json() == ["test.mcap"]
 
@@ -80,7 +80,7 @@ def test_get_files_with_mcap(client, tmp_path):
 def test_get_files_corrupted_mcap(client, tmp_path):
     fake_mcap(tmp_path / "test.mcap")
     fake_mcap(tmp_path / "test2.mcap", True)
-    response = client.get("/mcap/files")
+    response = client.get("/api/files")
     assert response.status_code == 200
     assert response.json() == ["test.mcap"]
 
@@ -88,7 +88,7 @@ def test_get_files_corrupted_mcap(client, tmp_path):
 # ======== download file by name
 def test_get_file(client, tmp_path): 
     fake_mcap(tmp_path / "test.mcap")
-    response = client.get("/mcap/files/test.mcap")
+    response = client.get("/api/files/test.mcap")
     assert response.status_code == 200
     assert response.headers["content-disposition"] == 'attachment; filename="test.mcap"'
     assert response.headers["content-type"] == "application/octet-stream"
@@ -96,7 +96,7 @@ def test_get_file(client, tmp_path):
 
 
 def test_get_file_not_exist(client, tmp_path): 
-    response = client.get("/mcap/files/test.mcap")
+    response = client.get("/api/files/test.mcap")
     assert response.status_code == 404
     assert response.json()["detail"] ==  "File not found"
 
@@ -105,7 +105,7 @@ def test_get_file_not_exist(client, tmp_path):
 def test_post_file(client, tmp_path): 
     fake_mcap(tmp_path / "test.mcap")
     with open(tmp_path / "test.mcap", "rb") as f:
-        response = client.post("/mcap/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
+        response = client.post("/api/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
     assert response.status_code == 200
     assert response.json() == {"filename": "testcopy.mcap"}
 
@@ -113,10 +113,10 @@ def test_post_file(client, tmp_path):
 def test_post_file_already_exists(client, tmp_path): 
     fake_mcap(tmp_path / "test.mcap")
     with open(tmp_path / "test.mcap", "rb") as f:
-        response = client.post("/mcap/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
+        response = client.post("/api/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
     assert response.status_code == 200
     with open(tmp_path / "test.mcap", "rb") as f:
-        response = client.post("/mcap/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
+        response = client.post("/api/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
     assert response.status_code == 409
     assert response.json()["detail"] ==  "File already exists"
 
@@ -124,7 +124,7 @@ def test_post_file_already_exists(client, tmp_path):
 def test_post_file_corruptet_mcap(client, tmp_path): 
     fake_mcap(tmp_path / "test.mcap", True)
     with open(tmp_path / "test.mcap", "rb") as f:
-        response = client.post("/mcap/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
+        response = client.post("/api/files", files={"file": ("testcopy.mcap", f, "application/octet-stream")})
     assert response.status_code == 422
     assert response.json()["detail"] == "Invalid or corrupted mcap file"
 
@@ -132,40 +132,40 @@ def test_post_file_corruptet_mcap(client, tmp_path):
 # ======== delete file
 def test_del_file(client, tmp_path): 
     fake_mcap(tmp_path / "test.mcap")
-    response = client.delete("/mcap/files/test.mcap")
+    response = client.delete("/api/files/test.mcap")
     assert response.status_code == 204
     assert not (tmp_path / "test.mcap").exists()
 
 
 def test_del_file_not_exist(client, tmp_path): 
-    response = client.delete("/mcap/files/test.mcap")
+    response = client.delete("/api/files/test.mcap")
     assert response.status_code == 404
     assert response.json()["detail"] ==  "File not found"
 
 
 # ======== get messages
 def test_get_messages_invalid_ext(client, tmp_path):
-    response = client.get("/mcap/messages/test.mp4")
+    response = client.get("/api/messages/test.mp4")
     assert response.status_code == 400
     assert response.json()["detail"] == "File must be .mcap"
 
 
 def test_get_messages_file_not_found(client, tmp_path):
-    response = client.get("/mcap/messages/test.mcap")
+    response = client.get("/api/messages/test.mcap")
     assert response.status_code == 404
     assert response.json()["detail"] == "File not found"
 
 
 def test_get_messages_reading_mcap(client, tmp_path):
     payload = fake_mcap(tmp_path / "test.mcap")
-    response = client.get("/mcap/messages/test.mcap")
+    response = client.get("/api/messages/test.mcap")
     assert response.status_code == 200
     assert response.json() == [payload, payload, payload]
 
 
 def test_get_messages_with_limit(client, tmp_path):
     payload = fake_mcap(tmp_path / "test.mcap")
-    response = client.get("/mcap/messages/test.mcap?limit=1")
+    response = client.get("/api/messages/test.mcap?limit=1")
     assert response.status_code == 200
     assert response.json() == [payload]
 
