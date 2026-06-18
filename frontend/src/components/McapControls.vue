@@ -6,9 +6,10 @@ const props = defineProps<{
   mode: "live" | "replay";
 }>();
 
-const fileInput = ref<HTMLInputElement | null>(null);
 const mcap = useMcapReplay();
+const fileInput = ref<HTMLInputElement | null>(null);
 const fileSelected = ref<boolean>(false);
+const intervalId = ref<number | null>(null);
 
 function triggerFileInput() {
   fileInput.value?.click();
@@ -28,6 +29,26 @@ const handleSelectMcap = () => {
   fileSelected.value = true;
   mcap.fetchFile();
 };
+
+const startPlayback = () => {
+  if (intervalId.value) return;
+  intervalId.value = setInterval(() => {
+    mcap.currentTime.value += 100_000;
+    console.log(`${mcap.currentTime.value}`)
+    if (mcap.currentTime.value >= mcap.maxTime.value) {
+      stopPlayback();
+    }
+  }, 100);
+};
+
+const stopPlayback = () => {
+  if (intervalId.value) {
+    clearInterval(intervalId.value);
+    intervalId.value = null;
+    console.log(`==> STOPPED`)
+  }
+};
+
 </script>
 
 <template>
@@ -44,17 +65,30 @@ const handleSelectMcap = () => {
           hide-details
           @update:modelValue="handleSelectMcap"
         />
-        <v-text-field
-          width="150px"
-          v-model="mcap.limit.value"
-          type="number"
-          label="Max messages"
-          hide-details
-          :rules="[(v) => v >= 1 || 'Min 1', (v) => v <= 10000 || 'Max 10000']"
-        />
+        <div class="d-flex justify-space-between ma-2 mr-15">
+          <v-text-field
+            style="max-width: 150px;"
+            v-model="mcap.limit.value"
+            type="number"
+            label="Max messages"
+            hide-details
+          />
+          <div class="mt-1">
+            <v-btn 
+              icon="mdi-play"
+              :disabled="!mcap.selectedFile.value || intervalId != null"
+              class="mr-5" @click="startPlayback"
+            />
+            <v-btn
+              icon="mdi-pause"
+              :disabled="!mcap.selectedFile.value || intervalId == null"
+              @click="stopPlayback"
+            />
+          </div>
+        </div>
       </div>
 
-      <div class="d-flex flex-column gap-2">
+      <div class="d-flex flex-column gap-2 mt-2">
         <v-btn
           class="ma-1 mb-4"
           width="130"
