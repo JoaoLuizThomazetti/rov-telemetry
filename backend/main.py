@@ -63,6 +63,24 @@ def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
     return messages
 
 
+def get_frame_bytes(path: Path, timestamp: int) -> bytes | None:
+    best_frame = None
+    best_diff = None
+    with open(path, "rb") as f:
+        reader = NonSeekingReader(f)
+        try:
+            for schema, channel, message in reader.iter_messages():
+                if channel.topic != "rov/camera/frame":
+                    continue
+                diff = abs(message.log_time // 1000 - timestamp)
+                if best_diff is None or diff < best_diff:
+                    best_diff = diff
+                    best_frame = message.data
+        except Exception:
+            pass
+    return best_frame
+
+
 async def broadcast(ws_clients: set[WebSocket], payload: str) -> None:
     for client in set(ws_clients):
         try:
@@ -209,6 +227,28 @@ async def get_mcap_messages(request: Request, file_name: str, limit: int = Query
         return messages
     except Exception as e:
         print(f"Cant read file {file_name}: {e}")
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
+
+
+@app.get("/messages/{file_name}/frame", tags=["MCAP"], responses={
+    400: {"description": "Invalid file extension or path"},
+    404: {"description": "File or frame not found"},
+    500: {"description": "Failed to read frame from mcap file"},
+})
+async def get_frame(request: Request, file_name: str, timestamp_us: int = Query(description="Timestamp in microseconds to find the closest video frame")) -> Response:
+    """Return closest frame at timestamp from mcap file."""
+    mcap_dir = request.app.state.mcap_dir
+    await check_file(mcap_dir, file_name)
+    try:
+        frame_bytes = await asyncio.to_thread(get_frame_bytes, (mcap_dir / file_name).resolve(), timestamp_us)
+        if frame_bytes is None:
+            raise HTTPException(
+                status_code=status.HTTP_404_NOT_FOUND, detail="No frame found at the given timestamp")
+        return Response(content=frame_bytes, media_type="image/jpeg")
+    except HTTPException:
+        raise
+    except Exception as e:
+        print(f"Cant read frame from file {file_name}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
