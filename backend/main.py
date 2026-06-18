@@ -47,10 +47,16 @@ def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
             for schema, channel, message in reader.iter_messages():
                 if len(messages) >= limit:
                     break
+                if channel.message_encoding != "json":
+                    continue
+                try:
+                    data = json.loads(message.data.decode("utf-8"))
+                except (UnicodeDecodeError, json.JSONDecodeError):
+                    continue
                 messages.append(McapMessage(
                     topic=channel.topic,
                     timestamp_us=message.log_time // 1000,
-                    data=json.loads(message.data.decode("utf-8")),
+                    data=data,
                 ))
         except Exception:
             pass
@@ -78,7 +84,7 @@ def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop) -> None:
             loop
         )
 
-    sub = session.declare_subscriber("rov/**", on_message)
+    sub = session.declare_subscriber("rov/*", on_message)
     while True:
         time.sleep(1)
 
