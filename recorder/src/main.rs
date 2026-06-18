@@ -101,9 +101,14 @@ async fn writer_task(mut rx: mpsc::Receiver<WriterMsg>) {
                     let channel_id = if let Some(&id) = channels.get(&topic) {
                         id
                     } else {
-                        let schema_name = topic.split('/').last().unwrap_or(&topic);
-                        let schema_id = w.add_schema(schema_name, "jsonschema", b"{}").unwrap();
-                        let id = w.add_channel(schema_id, &topic, "json", &metadata).unwrap();
+                        let is_video = topic.starts_with("rov/video/");
+                        let (schema_name, schema_encoding, schema_data, msg_encoding) = if is_video {
+                            ("CompressedImage", "", b"".as_slice(), "jpeg")
+                        } else {
+                            ("Telemetry", "jsonschema", b"{}".as_slice(), "json")
+                        };
+                        let schema_id = w.add_schema(schema_name, schema_encoding, schema_data).unwrap();
+                        let id = w.add_channel(schema_id, &topic, msg_encoding, &metadata).unwrap();
                         channels.insert(topic.clone(), id);
                         id
                     };
