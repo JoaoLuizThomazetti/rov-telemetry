@@ -35,10 +35,12 @@ services:
     volumes: [vision_videos:/videos]
     environment:
       - VIDEO_DIR=/videos
+      - ZENOH_CONNECT=tcp/zenoh-router:7447
     devices:
       - "/dev/video0:/dev/video0"
       - "/dev/video1:/dev/video1"
     networks: [rov-net]
+    depends_on: [zenoh-router]
 
   mavlink-simulator:
     build: ./mavlink-simulator
