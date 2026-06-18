@@ -49,6 +49,10 @@ const stopPlayback = () => {
   }
 };
 
+const restartPlayback = () => {
+  mcap.currentTime.value = mcap.minTime.value
+};
+
 </script>
 
 <template>
@@ -65,7 +69,7 @@ const stopPlayback = () => {
           hide-details
           @update:modelValue="handleSelectMcap"
         />
-        <div class="d-flex justify-space-between ma-2 mr-15">
+        <div class="d-flex justify-space-between ma-2 mr-8">
           <v-text-field
             style="max-width: 150px;"
             v-model="mcap.limit.value"
@@ -73,7 +77,7 @@ const stopPlayback = () => {
             label="Max messages"
             hide-details
           />
-          <div class="mt-1">
+          <div class="mt-2">
             <v-btn 
               icon="mdi-play"
               :disabled="!mcap.selectedFile.value || intervalId != null"
@@ -82,7 +86,12 @@ const stopPlayback = () => {
             <v-btn
               icon="mdi-pause"
               :disabled="!mcap.selectedFile.value || intervalId == null"
-              @click="stopPlayback"
+              class="mr-5" @click="stopPlayback"
+            />
+            <v-btn
+              icon="mdi-restart"
+              :disabled="!mcap.selectedFile.value || mcap.currentTime.value === mcap.minTime.value"
+              @click="restartPlayback"
             />
           </div>
         </div>
