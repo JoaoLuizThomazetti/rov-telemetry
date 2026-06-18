@@ -8,6 +8,7 @@ dependencies = [
     "aiortc>=1.14.0",
     "asyncio>=4.0.0",
     "av>=16.1.0",
+    "eclipse-zenoh>=1.9.0",
     "fastapi>=0.136.3",
     "httpx2>=2.3.0",
     "opencv-python-headless>=4.13.0.92",

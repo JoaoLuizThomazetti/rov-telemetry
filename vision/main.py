@@ -1,5 +1,6 @@
 import os
 import cv2
+import zenoh
 import shutil
 import logging
 import asyncio
@@ -18,6 +19,7 @@ VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "/videos"))
 TURN_URL = os.environ.get("TURN_URL", "")
 TURN_USER = os.environ.get("TURN_USER", "")
 TURN_PASS = os.environ.get("TURN_PASS", "")
+ZENOH_CONNECT = os.environ.get("ZENOH_CONNECT", "tcp/localhost:7447")
 
 
 logger = logging.getLogger("uvicorn.error")
@@ -26,6 +28,8 @@ _ice_servers = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
 if TURN_URL:
     _ice_servers.append(RTCIceServer(urls=TURN_URL, username=TURN_USER, credential=TURN_PASS))
 
+config = RTCConfiguration(iceServers=_ice_servers)
+
 _yolo_model = None
 def get_yolo():
     global _yolo_model
@@ -33,8 +37,6 @@ def get_yolo():
         from ultralytics import YOLO
         _yolo_model = YOLO(Path(__file__).parent / "marine.pt")
     return _yolo_model
-
-config = RTCConfiguration(iceServers=_ice_servers)
 
 
 class OfferRequest(BaseModel):
@@ -60,28 +62,33 @@ class VideoSources(BaseModel):
 
 
 class CvTrack(VideoStreamTrack):
-    def __init__(self, source: str | int, loop: bool = False, yolo: bool = False):
+    def __init__(self, source: str | int, session: zenoh.Session, loop: bool = False, yolo: bool = False):
         super().__init__()
         self.cap = cv2.VideoCapture(source)
         self.loop = loop
         self.yolo = yolo
+        self.session = session
+        self.publish_task = None
+        self.latest_frame = None
 
     async def recv(self) -> VideoFrame:
         if self.cap is None:
             raise Exception("Capture closed")
-        loop = asyncio.get_running_loop()
-        ret, frame = await loop.run_in_executor(None, self.cap.read)
+        if self.publish_task is None:
+            self.publish_task = asyncio.create_task(self._zenoh_publish_loop())
+        ret, frame = await asyncio.to_thread(self.cap.read)
         if not ret:
             if self.loop:
                 self.cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                ret, frame = await loop.run_in_executor(None, self.cap.read)
+                ret, frame = await asyncio.to_thread(self.cap.read)
             if not ret:
                 self.cap.release()
                 self.cap = None
                 raise Exception("Failed to read frame")
         if self.yolo:
-            results = await loop.run_in_executor(None, lambda: get_yolo()(frame, verbose=False)[0])
+            results = await asyncio.to_thread(lambda: get_yolo()(frame, verbose=False)[0])
             frame = results.plot()
+        self.latest_frame = frame.copy()
         frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         video_frame = VideoFrame.from_ndarray(frame, format="rgb24")
         pts, time_base = await self.next_timestamp()
@@ -89,11 +96,28 @@ class CvTrack(VideoStreamTrack):
         video_frame.time_base = time_base
         return video_frame
 
+    async def _zenoh_publish_loop(self):
+        publisher = self.session.declare_publisher("rov/camera/frame")
+        try:
+            while True:
+                if self.latest_frame is not None:
+                    await asyncio.to_thread(self._publish_frame, publisher, self.latest_frame)
+                await asyncio.sleep(0.1)
+        except asyncio.CancelledError:
+            pass
+
+    def _publish_frame(self, publisher, frame):
+        ok, buf = cv2.imencode(".jpg", frame, [cv2.IMWRITE_JPEG_QUALITY, 70])
+        if ok:
+            publisher.put(buf.tobytes())
+
     def stop(self):
-        if self.cap is not None:
+        if self.publish_task:
+            self.publish_task.cancel()
+            self.publish_task = None
+        if self.cap:
             self.cap.release()
             self.cap = None
-        super().stop()
 
 
 def test_video(file_path: Path) -> bool:
@@ -127,6 +151,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         if not dest.exists():
             shutil.copy(sample, dest)
     peer_conns: set[RTCPeerConnection] = set()
+    config = zenoh.Config()
+    config.insert_json5("mode", '"client"')
+    config.insert_json5("connect/endpoints", f'["{ZENOH_CONNECT}"]')
+    session = zenoh.open(config)
+    app.state.zenoh_session = session
     app.state.peer_conns = peer_conns
     app.state.video_dir = VIDEO_DIR
     yield
@@ -211,7 +240,8 @@ async def delete_video(request: Request, file_name: str) -> None:
 async def post_offer(request: Request, offer: OfferRequest) -> OfferResponse:
     """WebRTC signaling"""
     video_dir = request.app.state.video_dir
-    peer_conns = app.state.peer_conns
+    peer_conns = request.app.state.peer_conns
+    session = request.app.state.zenoh_session
     for old in set(peer_conns):
         await old.close()
     peer_conns.clear()
@@ -225,7 +255,7 @@ async def post_offer(request: Request, offer: OfferRequest) -> OfferResponse:
         cap.release()
         if not readable:
             raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=f"Camera {source} is not readable")
-    track = CvTrack(source, loop=offer.source_type == "video", yolo=offer.yolo)
+    track = CvTrack(source, session, loop=offer.source_type == "video", yolo=offer.yolo)
     peer_conn.addTrack(track)
     await peer_conn.setRemoteDescription(RTCSessionDescription(sdp=offer.sdp, type=offer.type))
     answer = await peer_conn.createAnswer()
@@ -235,7 +265,8 @@ async def post_offer(request: Request, offer: OfferRequest) -> OfferResponse:
 
     @peer_conn.on("connectionstatechange")
     async def on_state():
-        if peer_conn.connectionState in ("failed", "closed"):
+        if peer_conn.connectionState in ("failed", "closed", "disconnected"):
+            track.stop()
             await peer_conn.close()
             peer_conns.discard(peer_conn)
 
