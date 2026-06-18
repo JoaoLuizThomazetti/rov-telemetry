@@ -4,7 +4,7 @@ Real-time telemetry dashboard for ROV (Remotely Operated Vehicle) data.
 
 <img width="1843" height="1077" alt="Image" src="https://github.com/user-attachments/assets/732618eb-2332-4876-b3b9-2926bedc7533" />
 
-<video src="https://github.com/user-attachments/assets/cc36b317-5e2e-403d-9aac-1353dd43d19d" controls width="100%"></video>
+<video src="https://github.com/user-attachments/assets/db3a6f63-8c54-4ee0-aece-ed0c60768454" controls width="100%"></video>
 
 ---
 
@@ -33,6 +33,8 @@ Seven independent services + zenoh router:
 - Upload, download, and delete MCAP recording files
 - Load recordings with configurable message limit
 - Time slider for scrubbing through recorded data
+- Play, pause, and reset controls for real-time playback
+- Synchronized video frame replay: displays the closest recorded frame to the current timeline position
 
 ### Recording
 - Start/stop MCAP recordings via REST API (`POST /recorder/start`, `POST /recorder/stop`)
@@ -44,6 +46,7 @@ Seven independent services + zenoh router:
 - Upload and delete video files via the UI
 - Optional TURN server support for remote deployments (configurable via environment variables)
 - Optional real-time YOLO object detection overlay — YOLOv8n fine-tuned on the [Underwater Marine Species dataset](https://universe.roboflow.com/california-state-university-east-bay/underwater-marine-species) by California State University East Bay (eel, fish, jellyfish, lionfish, lobster — mAP50 80.6%)
+- During recording, video frames are published to Zenoh (`rov/camera/frame`) as JPEG at 5fps and captured by the recorder into the same MCAP file alongside MAVLink data
 
 ### ESP32 Firmware
 - MAVLink firmware for ESP32 (`esp32-mavlink/`) sending HEARTBEAT, ATTITUDE, GLOBAL_POSITION_INT, SYS_STATUS, BATTERY_STATUS, SCALED_PRESSURE2, and VFR_HUD at configurable rates
@@ -99,6 +102,19 @@ docker compose -f docker-compose.prod.yml up -d
 | `POST` | `/recorder/start` | Start a new MCAP recording |
 | `POST` | `/recorder/stop` | Stop and finalize the current recording |
 | `GET` | `/recorder/status` | Recording status, filename, start time |
+
+## Backend API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/api/files` | List available MCAP files |
+| `GET` | `/api/files/{filename}` | Download MCAP file |
+| `POST` | `/api/files` | Upload a `.mcap` file |
+| `DELETE` | `/api/files/{filename}` | Delete a MCAP file |
+| `GET` | `/api/messages/{filename}?limit=N` | Read messages from MCAP file |
+| `GET` | `/api/messages/{filename}/frame?timestamp_us=N` | Return closest video frame to timestamp |
+| `GET` | `/api/topic?topic=rov/...` | Query latest value from a Zenoh topic |
+| `WS` | `/api/ws/live` | Live MAVLink telemetry stream |
 
 ## Vision API
 
