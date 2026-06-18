@@ -9,6 +9,7 @@ import { useZenohQuery } from "./composables/useZenohQuery.ts";
 import type { BatteryStatus } from "./composables/useWebSocket";
 
 import HudOverlay from "./components/HudOverlay.vue";
+import VideoReplay from "./components/VideoReplay.vue";
 import McapControls from "./components/McapControls.vue";
 import MavLinkCards from "./components/MavLinkCards.vue";
 import StreamControls from "./components/StreamControls.vue";
@@ -122,20 +123,29 @@ watchEffect(() => {
                 />
 
                 <!-- video -->
-                <video
-                  v-if="connected"
-                  ref="videoElement"
-                  autoplay
-                  playsinline
-                  muted
-                  style="width: 100%; height: 100%; display: block; object-fit: contain"
-                ></video>
-                <v-img v-else src="/disconnected.jpeg" style="max-width: 500px" class="mx-auto" />
+                <v-col v-if="mode === 'live'">
+                  <video
+                    v-if="connected"
+                    ref="videoElement"
+                    autoplay
+                    playsinline
+                    muted
+                    style="width: 100%; height: 100%; display: block; object-fit: contain"
+                  ></video>
+                  <v-img v-else src="/disconnected.jpeg" style="max-width: 500px" class="mx-auto" />
+                </ v-col>
+
+
+                <v-col v-else>
+                  <VideoReplay />
+                </v-col>
+
+
               </v-col>
             </v-row>
 
             <!-- video controls -->
-            <div
+            <div 
               class="pl-10"
               style="
                 border-top: 1px solid #2f2f2f;
@@ -146,7 +156,7 @@ watchEffect(() => {
                 align-items: center;
               "
             >
-              <StreamControls />
+            <StreamControls v-if="mode === 'live'"/>
             </div>
           </v-col>
         </v-row>
