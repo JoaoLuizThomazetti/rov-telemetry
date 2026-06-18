@@ -36,8 +36,10 @@ services:
       - TURN_URL=${TURN_URL}
       - TURN_USER=${TURN_USER}
       - TURN_PASS=${TURN_PASS}
+      - ZENOH_CONNECT=tcp/zenoh-router:7447
     networks: [rov-net]
     ports: ["127.0.0.1:8003:8003"]
+    depends_on: [zenoh-router]
 
   mavlink-simulator:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-mavlink-simulator:latest
