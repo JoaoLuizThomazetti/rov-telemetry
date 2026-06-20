@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
 from pathlib import Path
 from collections.abc import AsyncIterator
-from mcap.reader import NonSeekingReader
+from mcap.reader import NonSeekingReader, make_reader
 from pydantic import BaseModel, Field
 
 
@@ -64,15 +64,19 @@ def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
 
 
 def get_frame_bytes(path: Path, timestamp: int) -> bytes | None:
+    target_ns = timestamp * 1000
+    window_ns = 500_000_000
     best_frame = None
     best_diff = None
     with open(path, "rb") as f:
-        reader = NonSeekingReader(f)
+        reader = make_reader(f)
         try:
-            for schema, channel, message in reader.iter_messages():
-                if channel.topic != "rov/camera/frame":
-                    continue
-                diff = abs(message.log_time // 1000 - timestamp)
+            for schema, channel, message in reader.iter_messages(
+                topics=["rov/camera/frame"],
+                start_time=target_ns - window_ns,
+                end_time=target_ns + window_ns,
+            ):
+                diff = abs(message.log_time - target_ns)
                 if best_diff is None or diff < best_diff:
                     best_diff = diff
                     best_frame = message.data
