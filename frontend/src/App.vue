@@ -112,7 +112,6 @@ watchEffect(() => {
               >
                 <!-- hud -->
                 <HudOverlay
-                  v-if="connected"
                   :vfrHud="currentVfrHud"
                   :battery="batteryQuery"
                   style="position: absolute; top: 12px; right: 12px; z-index: 10"

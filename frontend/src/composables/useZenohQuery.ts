@@ -9,10 +9,9 @@ export function useZenohQuery<T>(topic: string, intervalMs = 5000) {
     try {
       const res = await fetch(`/api/topic?topic=${topic}`);
       if (res.ok) {
-        const json = await res.json();
-        if (json.length > 0) data.value = json[0] as T;
+        data.value = await res.json() as T;
       }
-    } catch {}
+    } catch (e) { console.error("useZenohQuery error:", e); }
     timer = setTimeout(fetch_, intervalMs);
   };
 
