@@ -4,13 +4,9 @@ import math
 import asyncio
 import serial_asyncio
 import serial.tools.list_ports
-from fastapi import (
-    FastAPI,
-    Request,
-    HTTPException,
-    status
-)
+from fastapi import FastAPI, Request, HTTPException, status
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from contextlib import asynccontextmanager
 from collections.abc import AsyncIterator
 from pydantic import BaseModel, Field
@@ -18,6 +14,7 @@ from typing import Callable, Coroutine
 from pymavlink import mavutil
 from pymavlink.dialects.v20 import ardupilotmega as mav
 from dataclasses import dataclass, field
+from helpers import logger
 
 
 SYS_ID = 1
@@ -220,30 +217,40 @@ async def test_if_mavlink(port: str, baud: int, timeout: float = 2.0) -> bool:
 
 
 async def run_simulation(tasks: list[Task]) -> None:
-    while True:
-        now = time.monotonic()
-        for task in tasks:
-            if now - task.last >= task.interval:
-                try:
-                    task.fn()
-                    task.last = now
-                except Exception as e:
-                    print(f"[simulator] {task.fn.__name__} failed: {e}")
-        await asyncio.sleep(0.01)
+    logger.info("Starting simulation")
+    try:
+        while True:
+            now = time.monotonic()
+            for task in tasks:
+                if now - task.last >= task.interval:
+                    try:
+                        task.fn()
+                        task.last = now
+                    except Exception as e:
+                        logger.error(f"{task.fn.__name__} failed: {e}")
+            await asyncio.sleep(0.01)
+    finally:
+        logger.info("Stopping simulation")
 
 
 async def run_serial_proxy(port: str, baud: int) -> None:
-    reader, writer = await serial_asyncio.open_serial_connection(url=port, baudrate=baud)
-    conn = get_conn()
     try:
+        logger.info("Starting serial proxy")
+        reader, writer = await serial_asyncio.open_serial_connection(url=port, baudrate=baud)
+    except Exception as e:
+        logger.error(f"Serial {port} error: {e}")
+        return
+    try:
+        conn = get_conn()
         while True:
             data = await reader.read(256)
             if data:
                 conn.write(data)
     finally:
+        logger.info("Stopping serial proxy")
         writer.close()
         await writer.wait_closed()
-
+    
 
 TASKS = [
     Task(fn=send_heartbeat, interval=1.0),
@@ -258,6 +265,7 @@ TASKS = [
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logger.info("Starting Simulator")
     send_statustext("BlueROV2 simulator started", mav.MAV_SEVERITY_INFO)
     app.state.simulation = ManagedTask("simulator", run_simulation)
     app.state.serial_proxy = ManagedTask("serial-proxy", run_serial_proxy)
@@ -265,6 +273,10 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.port = None
     app.state.running = False
     yield
+    logger.info("Shutting down")
+    app.state.simulation.stop()
+    app.state.serial_proxy.stop()
+    logger.info("Stopping Simulator")
 
 
 app = FastAPI(
@@ -274,7 +286,21 @@ app = FastAPI(
     lifespan=lifespan,
     root_path="/simulator",
 )
+
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start) * 1000
+    logger.info(f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms:.1f}ms)")
+    return response
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"ERROR: {request.url.path}")
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/health", tags=["HEALTH"])
@@ -323,6 +349,8 @@ async def start_simulator(request: Request, source: str, port: str | None = None
             request.app.state.source = 'simulation'
             request.app.state.port = None
         case 'serial':
+            if not port:
+                raise HTTPException(status_code=422, detail="Port is required")
             if request.app.state.simulation.running: request.app.state.simulation.stop()
             request.app.state.serial_proxy.start(port, BAUD_RATE)
             request.app.state.source = 'serial'
