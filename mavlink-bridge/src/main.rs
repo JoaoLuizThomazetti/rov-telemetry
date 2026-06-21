@@ -142,7 +142,7 @@ mod tests {
         assert_eq!(result.system_id, 1);
         assert_eq!(result.component_id, 1);
         assert_eq!(result.system_status, MavState::MAV_STATE_ACTIVE as u8);
-        assert_eq!(result.timestamp_ms, ts);
+        assert_eq!(result.timestamp_us, ts);
     }
 
     #[test]
@@ -164,7 +164,7 @@ mod tests {
         assert_eq!(result.rollspeed, 0.1_f32);
         assert_eq!(result.pitchspeed, 0.2_f32);
         assert_eq!(result.yawspeed, 0.3_f32);
-        assert_eq!(result.timestamp_ms, ts);
+        assert_eq!(result.timestamp_us, ts);
     }
 
     #[test]
@@ -184,7 +184,7 @@ mod tests {
         assert_eq!(result.lon, -485495000_i32);
         assert_eq!(result.alt, 10000_i32);
         assert_eq!(result.hdg, 18000_u16);
-        assert_eq!(result.timestamp_ms, ts);
+        assert_eq!(result.timestamp_us, ts);
     }
 
     #[test]
@@ -201,7 +201,7 @@ mod tests {
         let ts = now_us();
         let result = parse_global_position(&pos, ts);
         assert_eq!(result.hdg, 65535_u16);
-        assert_eq!(result.timestamp_ms, ts);
+        assert_eq!(result.timestamp_us, ts);
     }
 
     #[test]
@@ -221,7 +221,7 @@ mod tests {
         assert_eq!(result.heading, 271_i16);
         assert_eq!(result.throttle, 40_u16);
         assert_eq!(result.alt, -2.5_f32);
-        assert_eq!(result.timestamp_ms, ts);
+        assert_eq!(result.timestamp_us, ts);
     }
 
     #[test]
@@ -237,6 +237,6 @@ mod tests {
         assert_eq!(result.press_abs, 1042.85_f32);
         assert_eq!(result.press_diff, 0.0_f32);
         assert_eq!(result.temperature, 2000_i16);
-        assert_eq!(result.timestamp_ms, ts);
+        assert_eq!(result.timestamp_us, ts);
     }
 }
