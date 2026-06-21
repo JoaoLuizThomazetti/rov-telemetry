@@ -222,6 +222,7 @@ async fn main() -> anyhow::Result<()> {
 
     let zenoh_handle = tokio::spawn(zenoh_task(tx.clone(), session));
     let writer_handle = tokio::spawn(writer_task(rx));
+    let close_tx = tx.clone();
 
     let state = AppState { tx, status };
     let axum_handle = tokio::spawn(async move {
@@ -244,8 +245,14 @@ async fn main() -> anyhow::Result<()> {
         _ = zenoh_handle => {},
         _ = writer_handle => {},
         _ = axum_handle => {},
+        _ = tokio::signal::ctrl_c() => {},
         _ = sigterm.recv() => {},
     }
+
+    tracing::info!("Flushing writer");
+    let (done_tx, done_rx) = tokio::sync::oneshot::channel();
+    let _ = close_tx.send(WriterMsg::Stop(done_tx)).await;
+    let _ = done_rx.await;
 
     tracing::info!("Stopping Recorder");
     Ok(())
