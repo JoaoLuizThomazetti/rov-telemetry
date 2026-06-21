@@ -1,7 +1,9 @@
+import sys
 import math
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from fastapi.testclient import TestClient
+sys.modules["helpers"] = MagicMock()
 from main import app, sim_roll, sim_pitch, sim_yaw, sim_depth, sim_speed, sim_batt, TASKS
 
 
