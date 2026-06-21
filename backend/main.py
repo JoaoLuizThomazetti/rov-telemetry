@@ -16,7 +16,7 @@ from fastapi import (
     UploadFile,
     File
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.websockets import WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from contextlib import asynccontextmanager
@@ -24,6 +24,7 @@ from pathlib import Path
 from collections.abc import AsyncIterator
 from mcap.reader import NonSeekingReader, make_reader
 from pydantic import BaseModel, Field
+from helpers import logger
 
 
 MCAP_DIR = Path(os.environ.get("MCAP_DIR", "."))
@@ -58,7 +59,8 @@ def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
                     timestamp_us=message.log_time // 1000,
                     data=data,
                 ))
-        except Exception:
+        except Exception as e:
+            logger.exception(f"Error reading messages from mcap: {e}")
             pass
     return messages
 
@@ -80,7 +82,8 @@ def get_frame_bytes(path: Path, timestamp: int) -> bytes | None:
                 if best_diff is None or diff < best_diff:
                     best_diff = diff
                     best_frame = message.data
-        except Exception:
+        except Exception as e:
+            logger.exception(f"Error reading frames from mcap: {e}")
             pass
     return best_frame
 
@@ -94,24 +97,28 @@ async def broadcast(ws_clients: set[WebSocket], payload: str) -> None:
 
 
 def subscriber(app: FastAPI, loop: asyncio.AbstractEventLoop) -> None:
-    session = app.state.zenoh_session
+    logger.info("Starting zenoh subscriber")
+    try:
+        session = app.state.zenoh_session
 
-    def on_message(sample):
-        payload = json.dumps({
-            "topic": str(sample.key_expr),
-            "data": json.loads(bytes(sample.payload).decode("utf-8")),
-        })
-        asyncio.run_coroutine_threadsafe(
-            broadcast(app.state.ws_clients, payload),
-            loop
-        )
+        def on_message(sample):
+            payload = json.dumps({
+                "topic": str(sample.key_expr),
+                "data": json.loads(bytes(sample.payload).decode("utf-8")),
+            })
+            asyncio.run_coroutine_threadsafe(
+                broadcast(app.state.ws_clients, payload),
+                loop
+            )
 
-    sub = session.declare_subscriber("rov/*", on_message)
-    while True:
-        time.sleep(1)
+        sub = session.declare_subscriber("rov/*", on_message)
+        while True:
+            time.sleep(1)
+    finally:
+        logger.info("Stopping zenoh subscriber")
 
 
-async def check_file(mcap_dir: Path, file_name: str, is_upload: bool = False) -> None:
+def check_file(mcap_dir: Path, file_name: str, is_upload: bool = False) -> None:
     if not file_name.endswith(".mcap"):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="File must be .mcap")
     if not (mcap_dir / file_name).resolve().is_relative_to(mcap_dir.resolve()):
@@ -126,6 +133,7 @@ async def check_file(mcap_dir: Path, file_name: str, is_upload: bool = False) ->
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logger.info("Starting Backend")
     loop = asyncio.get_running_loop()
     connect = os.environ.get("ZENOH_CONNECT", "tcp/localhost:7447")
     config = zenoh.Config()
@@ -142,6 +150,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     )
     thread.start()
     yield
+    logger.info("Stopping Backend")
     session.close()
     for client in app.state.ws_clients:
         await client.close(code=1001)
@@ -156,6 +165,19 @@ app = FastAPI(
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
+@app.middleware("http")
+async def log_requests(request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start) * 1000
+    logger.info(f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms:.1f}ms)")
+    return response
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"ERROR: {request.url.path}")
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
+
 
 @app.get("/files", tags=["MCAP"], responses={500: {"description": "Internal server error"}})
 async def get_mcap_files(request: Request) -> list[str]:
@@ -167,7 +189,7 @@ async def get_mcap_files(request: Request) -> list[str]:
             if read_mcap(file_path, 1):
                 available_files.append(file_path.name)
         except Exception as e:
-            print(f"Cant read file {file_path.name}: {e}")
+            logger.info(f"Cant read file {file_path.name}: {e}")
     return available_files
 
 
@@ -179,7 +201,7 @@ async def get_mcap_files(request: Request) -> list[str]:
 async def get_mcap_file(request: Request, file_name: str):
     """Download MCAP by filename"""
     mcap_dir = request.app.state.mcap_dir
-    await check_file(mcap_dir, file_name)
+    check_file(mcap_dir, file_name)
     return FileResponse(
         path=(mcap_dir / file_name).resolve(),
         filename=file_name,
@@ -195,10 +217,12 @@ async def get_mcap_file(request: Request, file_name: str):
 async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> UploadResponse:
     """Upload a new mcap file. Rejects corrupted or wrong extension file"""
     mcap_dir = request.app.state.mcap_dir
-    await check_file(mcap_dir, file.filename, True)
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="File name is required")
+    check_file(mcap_dir, file.filename, True)
     file_path = mcap_dir / file.filename
     with open(file_path, "wb") as f:
-        shutil.copyfileobj(file.file, f)
+        f.write(await file.read())
     if not read_mcap(file_path, 1):
         file_path.unlink()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid or corrupted mcap file")
@@ -212,7 +236,7 @@ async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> Up
 async def del_mcap_file(request: Request, file_name: str) -> None:
     """Delete mcap file by name"""
     mcap_dir = request.app.state.mcap_dir
-    await check_file(mcap_dir, file_name)
+    check_file(mcap_dir, file_name)
     (mcap_dir / file_name).resolve().unlink()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -225,12 +249,12 @@ async def del_mcap_file(request: Request, file_name: str) -> None:
 async def get_mcap_messages(request: Request, file_name: str, limit: int = Query(default=1000, description="Max messages to return")) -> list[McapMessage]:
     """Read and return messages from mcap file."""
     mcap_dir = request.app.state.mcap_dir
-    await check_file(mcap_dir, file_name)
+    check_file(mcap_dir, file_name)
     try:
         messages = await asyncio.to_thread(read_mcap, (mcap_dir / file_name).resolve(), limit)
         return messages
     except Exception as e:
-        print(f"Cant read file {file_name}: {e}")
+        logger.exception(f"Cant read file {file_name}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -242,7 +266,7 @@ async def get_mcap_messages(request: Request, file_name: str, limit: int = Query
 async def get_frame(request: Request, file_name: str, timestamp_us: int = Query(description="Timestamp in microseconds to find the closest video frame")) -> Response:
     """Return closest frame at timestamp from mcap file."""
     mcap_dir = request.app.state.mcap_dir
-    await check_file(mcap_dir, file_name)
+    check_file(mcap_dir, file_name)
     try:
         frame_bytes = await asyncio.to_thread(get_frame_bytes, (mcap_dir / file_name).resolve(), timestamp_us)
         if frame_bytes is None:
@@ -252,7 +276,7 @@ async def get_frame(request: Request, file_name: str, timestamp_us: int = Query(
     except HTTPException:
         raise
     except Exception as e:
-        print(f"Cant read frame from file {file_name}: {e}")
+        logger.exception(f"Cant read frame from file {file_name}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
 
 
@@ -285,11 +309,13 @@ async def ws_connect(ws: WebSocket):
     try:
         await ws.accept()
         ws_clients.add(ws)
+        logger.info(f"Websocket connected (clients={len(ws_clients)})")
         while True:
             await ws.receive_text()
     except WebSocketDisconnect:
+        logger.info(f"Websocket disconnected")
         pass
     except Exception as e:
-        print(f"Error: {e}")
+        logger.exception(f"Websocket conn error: {e}")
     finally:
         ws_clients.discard(ws)
