@@ -1,3 +1,4 @@
+import sys
 import time
 import json
 import pytest
@@ -5,9 +6,9 @@ from pathlib import Path
 from mcap.writer import Writer
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
-from main import app, check_file, broadcast
 from unittest.mock import patch, MagicMock, AsyncMock
-
+sys.modules["helpers"] = MagicMock()
+from main import app, check_file, broadcast
 
 @pytest.fixture
 def client(tmp_path):

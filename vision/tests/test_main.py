@@ -1,7 +1,9 @@
+import sys
 import pytest
-from main import app
-from unittest.mock import patch
+from unittest.mock import patch, MagicMock
 from fastapi.testclient import TestClient
+sys.modules["helpers"] = MagicMock()
+from main import app
 
 
 @pytest.fixture
