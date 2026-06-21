@@ -12,6 +12,8 @@ use dashmap::DashMap;
 async fn main() -> anyhow::Result<()>{
     env_logger::init();
     
+    log::info!("Starting Bridge");
+
     let payload_cache: Arc<DashMap<String, String>> = Arc::new(DashMap::new());
 
     let connect = std::env::var("ZENOH_CONNECT").unwrap_or_else(|_| "tcp/localhost:7447".to_string());
@@ -28,29 +30,27 @@ async fn main() -> anyhow::Result<()>{
     let pub_scaled_pressure2 = session.declare_publisher("rov/scaled_pressure2").await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let pub_battery_status = session.declare_publisher("rov/battery_status").await.map_err(|e| anyhow::anyhow!("{e}"))?;
     let queryable = session.declare_queryable("rov/**").await.map_err(|e| anyhow::anyhow!("{e}"))?;
-
     let (tx, mut rx) = tokio::sync::mpsc::channel::<(MavHeader, MavMessage)>(100);
 
     std::thread::spawn(move || {
         let mavlink_udp = std::env::var("MAVLINK_LISTEN").unwrap_or_else(|_| "udpin:0.0.0.0:14550".to_string());
-        let mut vehicle = mavlink::connect::<MavMessage>(&mavlink_udp).unwrap();
-        vehicle.set_allow_recv_any_version(true);
+        let mut vehicle = mavlink::connect::<MavMessage>(&mavlink_udp).expect(&format!("Connection failed: {}", mavlink_udp));
 
-        log::info!("[bridge] MAVLink listening on {}", mavlink_udp);
-        
+        vehicle.set_allow_recv_any_version(true);
+        log::info!("Starting Mavlink receiver on '{}'", mavlink_udp);  
         loop {
             match vehicle.recv() {
                 Ok((header, msg)) => {
-                    log::debug!("[bridge] received sys={} type={:?}", header.system_id, msg);
                     let _ = tx.blocking_send((header, msg));
                 }
                 Err(e) => {
-                    log::warn!("[bridge] recv error: {:?}", e);
+                    log::warn!("Receiver error: {:?}", e);
                 }
             }
         }
     });
 
+    log::info!("Starting Bridge main loop"); 
     let mut sigterm = signal(SignalKind::terminate())?;
     loop {
         tokio::select! {
@@ -113,6 +113,8 @@ async fn main() -> anyhow::Result<()>{
             }
         }
     }
+
+    log::info!("Stopping Bridge");
     Ok(())
 }
 
