@@ -60,18 +60,25 @@ jobs:
     strategy:
       matrix:
         include:
+          - service: mavlink-simulator
+            context: .
+            dockerfile: mavlink-simulator/Dockerfile
+          - service: backend
+            context: .
+            dockerfile: backend/Dockerfile
+          - service: vision
+            context: .
+            dockerfile: vision/Dockerfile
           - service: mavlink-bridge
             context: mavlink-bridge
-          - service: mavlink-simulator
-            context: mavlink-simulator
+            dockerfile: mavlink-bridge/Dockerfile
           - service: recorder
             context: recorder
-          - service: backend
-            context: backend
+            dockerfile: recorder/Dockerfile
           - service: frontend
             context: frontend
-          - service: vision
-            context: vision
+            dockerfile: frontend/Dockerfile
+
     steps:
       - uses: actions/checkout@v4
       - name: Set lowercase owner
@@ -84,7 +91,8 @@ jobs:
       - uses: docker/setup-buildx-action@v3
       - uses: docker/build-push-action@v6
         with:
-          context: ./${{ matrix.context }}
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
           push: true
           tags: ghcr.io/${{ env.OWNER }}/rov-telemetry-${{ matrix.service }}:latest
           build-args: |
