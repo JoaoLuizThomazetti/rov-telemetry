@@ -4,38 +4,53 @@ services:
     networks: [rov-net]
 
   mavlink-bridge:
-    build: ./mavlink-bridge
+    build:
+      context: ./mavlink-bridge/
+      dockerfile: Dockerfile
+    restart: on-failure
     environment:
       - MAVLINK_LISTEN=udpin:0.0.0.0:14550
       - ZENOH_CONNECT=tcp/zenoh-router:7447
+      - RUST_LOG=info
     networks: [rov-net]
     depends_on: [zenoh-router]
 
   recorder:
-    build: ./recorder
+    build:
+      context: ./recorder/
+      dockerfile: Dockerfile
+    restart: on-failure
     volumes: [mcap_data:/data]
     environment:
       - MCAP_DIR=/data
       - ZENOH_CONNECT=tcp/zenoh-router:7447
+      - RUST_LOG=info
     networks: [rov-net]
     depends_on: [zenoh-router]
 
   backend:
-    build: ./backend
+    build:
+      context: .
+      dockerfile: backend/Dockerfile
+    restart: on-failure
     volumes: [mcap_data:/data]
     environment:
       - MCAP_DIR=/data
       - ZENOH_CONNECT=tcp/zenoh-router:7447
+      - PYTHONUNBUFFERED=1
     networks: [rov-net]
     depends_on: [zenoh-router]
 
   vision:
-    build: ./vision
+    build:
+      context: .
+      dockerfile: vision/Dockerfile
     restart: on-failure
     volumes: [vision_videos:/videos]
     environment:
       - VIDEO_DIR=/videos
       - ZENOH_CONNECT=tcp/zenoh-router:7447
+      - PYTHONUNBUFFERED=1
     devices:
       - "/dev/video0:/dev/video0"
       - "/dev/video1:/dev/video1"
@@ -43,7 +58,10 @@ services:
     depends_on: [zenoh-router]
 
   mavlink-simulator:
-    build: ./mavlink-simulator
+    build:
+      context: .
+      dockerfile: mavlink-simulator/Dockerfile
+    restart: on-failure
     privileged: true
     volumes: ["/dev:/dev"]
     environment:

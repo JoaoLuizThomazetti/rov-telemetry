@@ -5,46 +5,57 @@ services:
 
   mavlink-bridge:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-mavlink-bridge:latest
+    restart: on-failure
     environment:
+      - MAVLINK_LISTEN=udpin:0.0.0.0:14550
       - ZENOH_CONNECT=tcp/zenoh-router:7447
+      - RUST_LOG=info
     networks: [rov-net]
     depends_on: [zenoh-router]
 
   recorder:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-recorder:latest
+    restart: on-failure
     volumes: [mcap_data:/data]
     environment:
       - MCAP_DIR=/data
       - ZENOH_CONNECT=tcp/zenoh-router:7447
+      - RUST_LOG=info
     networks: [rov-net]
     depends_on: [zenoh-router]
 
   backend:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-backend:latest
+    restart: on-failure
     volumes: [mcap_data:/data]
     environment:
       - MCAP_DIR=/data
       - ZENOH_CONNECT=tcp/zenoh-router:7447
+      - PYTHONUNBUFFERED=1
     networks: [rov-net]
     depends_on: [zenoh-router]
 
   vision:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-vision:latest
+    restart: on-failure
     volumes: [vision_videos:/videos]
     environment:
       - VIDEO_DIR=/videos
+      - ZENOH_CONNECT=tcp/zenoh-router:7447
       - TURN_URL=${TURN_URL}
       - TURN_USER=${TURN_USER}
       - TURN_PASS=${TURN_PASS}
-      - ZENOH_CONNECT=tcp/zenoh-router:7447
+      - PYTHONUNBUFFERED=1
     networks: [rov-net]
     ports: ["127.0.0.1:8003:8003"]
     depends_on: [zenoh-router]
 
   mavlink-simulator:
     image: ghcr.io/joaoluizthomazetti/rov-telemetry-mavlink-simulator:latest
+    restart: on-failure
     environment:
       - MAVLINK_TARGET=udpout:mavlink-bridge:14550
+      - PYTHONUNBUFFERED=1
     networks: [rov-net]
     depends_on: [mavlink-bridge]
 

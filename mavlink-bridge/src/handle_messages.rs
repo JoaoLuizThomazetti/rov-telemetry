@@ -20,7 +20,7 @@ pub struct Heartbeat {
     pub base_mode: u8,
     pub custom_mode: u32,
     pub system_status: u8,
-    pub timestamp_ms: u64,
+    pub timestamp_us: u64,
 }
 
 
@@ -35,7 +35,7 @@ pub struct SysStatus {
     pub battery_remaining: i8,
     pub drop_rate_comm: u16,
     pub errors_comm: u16,
-    pub timestamp_ms: u64,
+    pub timestamp_us: u64,
 }
 
 
@@ -47,7 +47,7 @@ pub struct Attitude {
     pub rollspeed: f32,
     pub pitchspeed: f32,
     pub yawspeed: f32,
-    pub timestamp_ms: u64,
+    pub timestamp_us: u64,
 }
 
 
@@ -61,7 +61,7 @@ pub struct GlobalPosition {
     pub vy: i16,
     pub vz: i16,
     pub hdg: u16,
-    pub timestamp_ms: u64,
+    pub timestamp_us: u64,
 }
 
 
@@ -70,7 +70,7 @@ pub struct ScaledPressure2 {
     pub press_abs: f32,
     pub press_diff: f32,
     pub temperature: i16,
-    pub timestamp_ms: u64,
+    pub timestamp_us: u64,
 }
 
 
@@ -86,7 +86,7 @@ pub struct BatteryStatus {
     pub energy_consumed: i32,
     pub battery_remaining: i8,
     pub charge_state: u8,
-    pub timestamp_ms: u64,
+    pub timestamp_us: u64,
 }
 
 
@@ -98,7 +98,7 @@ pub struct VfrHud {
     pub throttle: u16,
     pub alt: f32,
     pub climb: f32,
-    pub timestamp_ms: u64,
+    pub timestamp_us: u64,
 }
 
 
@@ -119,7 +119,7 @@ pub fn parse_heartbeat(header: &mavlink::MavHeader, hb: &HEARTBEAT_DATA, ts: u64
         base_mode: hb.base_mode.bits(),
         custom_mode: hb.custom_mode,
         system_status: hb.system_status as u8,
-        timestamp_ms: ts,
+        timestamp_us: ts,
     }
 }
 
@@ -132,7 +132,7 @@ pub fn parse_attitude(att: &ATTITUDE_DATA, ts: u64) -> Attitude {
         rollspeed: att.rollspeed,
         pitchspeed: att.pitchspeed,
         yawspeed: att.yawspeed,
-        timestamp_ms: ts,
+        timestamp_us: ts,
     }
 }
 
@@ -147,7 +147,7 @@ pub fn parse_global_position(pos: &GLOBAL_POSITION_INT_DATA, ts: u64) -> GlobalP
         vy: pos.vy,
         vz: pos.vz,
         hdg: pos.hdg,
-        timestamp_ms: ts,
+        timestamp_us: ts,
     }
 }
 
@@ -163,7 +163,7 @@ pub fn parse_sys_status(sys: &SYS_STATUS_DATA, ts: u64) -> SysStatus {
         battery_remaining: sys.battery_remaining,
         drop_rate_comm: sys.drop_rate_comm,
         errors_comm: sys.errors_comm,
-        timestamp_ms: ts,
+        timestamp_us: ts,
     }
 }
 
@@ -176,7 +176,7 @@ pub fn parse_vfr_hud(hud: &VFR_HUD_DATA, ts: u64) -> VfrHud {
         throttle: hud.throttle,
         alt: hud.alt,
         climb: hud.climb,
-        timestamp_ms: ts,
+        timestamp_us: ts,
     }
 }
 
@@ -186,7 +186,7 @@ pub fn parse_scaled_pressure2(pres: &SCALED_PRESSURE2_DATA, ts: u64) -> ScaledPr
         press_abs: pres.press_abs,
         press_diff: pres.press_diff,
         temperature: pres.temperature,
-        timestamp_ms: ts,
+        timestamp_us: ts,
     }
 }
 
@@ -203,6 +203,6 @@ pub fn parse_battery_status(bat: &BATTERY_STATUS_DATA, ts: u64) -> BatteryStatus
         energy_consumed: bat.energy_consumed,
         battery_remaining: bat.battery_remaining,
         charge_state: 0,
-        timestamp_ms: ts,
+        timestamp_us: ts,
     }
 }
