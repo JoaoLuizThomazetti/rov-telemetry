@@ -15,7 +15,7 @@ class InterceptHandler(logging.Handler):
 
 logging.basicConfig(handlers=[InterceptHandler()], level=0, force=True)
 
-
+logger.remove()
 logger.add(
     sys.stdout,
     format="<green>[{time:YYYY-MM-DD HH:mm:ss}][<level>{level}</level>]</green> {name}:{function} -> {message}",
