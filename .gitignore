@@ -26,4 +26,4 @@ training/Underwater-Marine-Species-6/
 
 # IDE
 .idea/
-.vscode/
+.vscode/esp32-mavlink/mavlink_lib/

@@ -50,7 +50,7 @@ Seven independent services + zenoh router:
 
 ### ESP32 Firmware
 - MAVLink firmware for ESP32 (`esp32-mavlink/`) sending HEARTBEAT, ATTITUDE, GLOBAL_POSITION_INT, SYS_STATUS, BATTERY_STATUS, SCALED_PRESSURE2, and VFR_HUD at configurable rates
-- Built with PlatformIO + Arduino framework; MAVLink C library v2 included
+- Built with PlatformIO + Arduino framework
 
 ---
 
@@ -62,7 +62,12 @@ docker compose up --build
 
 Frontend available at `http://localhost`.
 
-To flash the ESP32 firmware:
+To flash the ESP32 firmware, first download the MAVLink C library v2:
+```bash
+git clone https://github.com/mavlink/c_library_v2 esp32-mavlink/mavlink_lib
+```
+
+Then flash:
 ```bash
 cd esp32-mavlink && uv run pio run --target upload
 ```
