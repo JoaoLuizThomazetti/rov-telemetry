@@ -6,7 +6,7 @@ services:
   mavlink-bridge:
     build:
       context: ./mavlink-bridge/
-      dockerfile: mavlink-bridge/Dockerfile
+      dockerfile: Dockerfile
     restart: on-failure
     environment:
       - MAVLINK_LISTEN=udpin:0.0.0.0:14550
@@ -18,7 +18,7 @@ services:
   recorder:
     build:
       context: ./recorder/
-      dockerfile: recorder/Dockerfile
+      dockerfile: Dockerfile
     restart: on-failure
     volumes: [mcap_data:/data]
     environment:
