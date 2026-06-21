@@ -2,8 +2,8 @@ import os
 import cv2
 import zenoh
 import shutil
-import logging
 import asyncio
+import time
 from pathlib import Path
 from av import VideoFrame
 from pydantic import BaseModel, Field
@@ -12,7 +12,9 @@ from contextlib import asynccontextmanager
 from aiortc.mediastreams import VideoStreamTrack
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi import FastAPI, Response, HTTPException, status, Request, UploadFile, File
+from fastapi.responses import JSONResponse
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCConfiguration, RTCIceServer
+from helpers import logger
 
 
 VIDEO_DIR = Path(os.environ.get("VIDEO_DIR", "/videos"))
@@ -21,8 +23,6 @@ TURN_USER = os.environ.get("TURN_USER", "")
 TURN_PASS = os.environ.get("TURN_PASS", "")
 ZENOH_CONNECT = os.environ.get("ZENOH_CONNECT", "tcp/localhost:7447")
 
-
-logger = logging.getLogger("uvicorn.error")
 
 _ice_servers = [RTCIceServer(urls="stun:stun.l.google.com:19302")]
 if TURN_URL:
@@ -34,6 +34,7 @@ _yolo_model = None
 def get_yolo():
     global _yolo_model
     if _yolo_model is None:
+        logger.info("Creating YOLO instance")
         from ultralytics import YOLO
         _yolo_model = YOLO(Path(__file__).parent / "marine.pt")
     return _yolo_model
@@ -144,6 +145,7 @@ def check_file(video_dir: Path, file_name: str, is_upload: bool = False) -> None
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    logger.info("Starting Vision")
     VIDEO_DIR.mkdir(parents=True, exist_ok=True)
     samples_dir = Path(__file__).parent / "samples"
     for sample in samples_dir.glob("*.mp4"):
@@ -159,6 +161,9 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.peer_conns = peer_conns
     app.state.video_dir = VIDEO_DIR
     yield
+    logger.info("Stopping Vision")
+    session.close()
+    logger.info(f"Closing '{len(app.state.peer_conns)}' peer connections")
     for peer_conn in app.state.peer_conns:
         await peer_conn.close()
 
@@ -171,6 +176,19 @@ app = FastAPI(
     root_path="/vision",
 )
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+
+@app.middleware("http")
+async def log_requests(request, call_next):
+    start = time.time()
+    response = await call_next(request)
+    duration_ms = (time.time() - start) * 1000
+    logger.info(f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms:.1f}ms)")
+    return response
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    logger.exception(f"ERROR: {request.url.path}")
+    return JSONResponse(status_code=500, content={"detail": "Internal server error"})
 
 
 @app.get("/health", tags=["HEALTH"])
@@ -200,7 +218,7 @@ async def get_sources(request: Request) -> VideoSources:
                 if ret and fourcc != 0:
                     sources.cameras.append(i)
     except Exception as e:
-        logger.warning(f"Error: {e}")
+        logger.warning(f"Error listing sources: {e}")
     return sources
 
 
@@ -212,7 +230,9 @@ async def get_sources(request: Request) -> VideoSources:
 async def upload_video(request: Request, file: UploadFile = File(...)) -> UploadResponse:
     """Upload a new video file. Rejects corrupted or wrong extension file"""
     video_dir = request.app.state.video_dir
-    check_file(video_dir, file.filename, True)
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="File name is required")
+    check_file(video_dir, str(file.filename), True)
     file_path = video_dir / file.filename
     contents = await file.read()
     with open(file_path, "wb") as f:
@@ -231,7 +251,7 @@ async def upload_video(request: Request, file: UploadFile = File(...)) -> Upload
 async def delete_video(request: Request, file_name: str) -> None:
     """Delete video file by name"""
     video_dir = request.app.state.video_dir
-    check_file(video_dir, file_name)
+    check_file(video_dir, str(file_name))
     (video_dir / file_name).resolve().unlink()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -245,8 +265,10 @@ async def post_offer(request: Request, offer: OfferRequest) -> OfferResponse:
     for old in set(peer_conns):
         await old.close()
     peer_conns.clear()
+    logger.info(f"OFFER: source_type={offer.source_type} source_id={offer.source_id} yolo={offer.yolo}")
     peer_conn = RTCPeerConnection(configuration=config)
     if offer.source_type == "video":
+        check_file(video_dir, str(offer.source_id))
         source = str(video_dir / offer.source_id)
     else:
         source = int(offer.source_id)
