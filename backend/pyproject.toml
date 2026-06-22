@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.11"
 dependencies = [
+    "helpers",
     "eclipse-zenoh>=1.9.0",
     "fastapi>=0.136.3",
     "flake8>=7.3.0",
@@ -21,3 +22,6 @@ dev = [
     "pytest>=9.0.3",
     "pytest-asyncio>=1.4.0",
 ]
+
+[tool.uv.sources]
+helpers = { path = "../helpers" }
