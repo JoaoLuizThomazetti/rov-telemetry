@@ -2,22 +2,23 @@
 
 Real-time telemetry dashboard for ROV (Remotely Operated Vehicle) data.
 
-<img width="1843" height="1077" alt="Image" src="https://github.com/user-attachments/assets/732618eb-2332-4876-b3b9-2926bedc7533" />
+<img width="1836" height="1078" alt="Image" src="https://github.com/user-attachments/assets/e967f987-6007-45b1-83d0-2331e0fd7543" />
 
-<video src="https://github.com/user-attachments/assets/db3a6f63-8c54-4ee0-aece-ed0c60768454" controls width="100%"></video>
+<video src="https://github.com/user-attachments/assets/511f8e1b-d1c0-4f9c-91b7-4f5393fb2197" controls width="100%"></video>
 
 ---
 
 ## Architecture
 
-Seven independent services + zenoh router:
+Eight independent services + zenoh router:
 
 - **mavlink-simulator:** Python + FastAPI + pymavlink | Software MAVLink simulator or serial proxy for real hardware (ESP32/ArduPilot)
 - **mavlink-bridge:** Rust + Zenoh | Receives MAVLink UDP, decodes messages, publishes to Zenoh topics
 - **recorder:** Rust + Axum + Zenoh | Subscribes to all topics, writes MCAP files on demand
 - **backend:** Python + FastAPI + Zenoh | Reads MCAP files, forwards live data via WebSocket
 - **vision:** Python + FastAPI + aiortc + OpenCV | WebRTC video streaming from cameras and video files
-- **frontend:** Vue 3 + Vuetify + Vite | Live telemetry, MCAP replay, WebRTC video stream, and simulator control UI
+- **telemetry:** Python + FastAPI + psutil + Docker SDK | Monitors system resources and container health, streams via WebSocket
+- **frontend:** Vue 3 + Vuetify + Vite | Live telemetry, MCAP replay, WebRTC video stream, simulator control UI, and system monitor panel
 - **zenoh-router:** Eclipse Zenoh | Message broker for all inter-service communication
 
 ---
@@ -47,6 +48,11 @@ Seven independent services + zenoh router:
 - Optional TURN server support for remote deployments (configurable via environment variables)
 - Optional real-time YOLO object detection overlay — YOLOv8n fine-tuned on the [Underwater Marine Species dataset](https://universe.roboflow.com/california-state-university-east-bay/underwater-marine-species) by California State University East Bay (eel, fish, jellyfish, lionfish, lobster — mAP50 80.6%)
 - During recording, video frames are published to Zenoh (`rov/camera/frame`) as JPEG at 5fps and captured by the recorder into the same MCAP file alongside MAVLink data
+
+### System Monitor
+- Collapsible side panel showing real-time CPU, memory, and disk usage
+- Per-container status (running/stopped) and uptime for all project services
+- Live updates via WebSocket every 2 seconds with auto-reconnect
 
 ### ESP32 Firmware
 - MAVLink firmware for ESP32 (`esp32-mavlink/`) sending HEARTBEAT, ATTITUDE, GLOBAL_POSITION_INT, SYS_STATUS, BATTERY_STATUS, SCALED_PRESSURE2, and VFR_HUD at configurable rates
@@ -120,6 +126,14 @@ docker compose -f docker-compose.prod.yml up -d
 | `GET` | `/api/messages/{filename}/frame?timestamp_us=N` | Return closest video frame to timestamp |
 | `GET` | `/api/topic?topic=rov/...` | Query latest value from a Zenoh topic |
 | `WS` | `/api/ws/live` | Live MAVLink telemetry stream |
+
+## Telemetry API
+
+| Method | Path | Description |
+|---|---|---|
+| `GET` | `/telemetry/system` | CPU, memory, and disk usage percentages |
+| `GET` | `/telemetry/containers` | Status and uptime of all project containers |
+| `WS` | `/telemetry/ws/live` | Live system + container data stream (2s interval) |
 
 ## Vision API
 
