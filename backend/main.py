@@ -3,6 +3,7 @@ import asyncio
 import zenoh
 import time
 import json
+import bisect
 import threading
 import shutil
 from fastapi import (
@@ -40,52 +41,45 @@ class UploadResponse(BaseModel):
     filename: str = Field(description="Uploaded file name")
 
 
-def read_mcap(path: Path, limit: int = 1000) -> list[McapMessage]:
-    messages = []
-    with open(path, "rb") as f:
-        reader = NonSeekingReader(f)
-        try:
-            for schema, channel, message in reader.iter_messages():
-                if len(messages) >= limit:
-                    break
-                if channel.message_encoding != "json":
-                    continue
-                try:
-                    data = json.loads(message.data.decode("utf-8"))
-                except (UnicodeDecodeError, json.JSONDecodeError):
-                    continue
-                messages.append(McapMessage(
-                    topic=channel.topic,
-                    timestamp_us=message.log_time // 1000,
-                    data=data,
-                ))
-        except Exception as e:
-            logger.exception(f"Error reading messages from mcap: {e}")
-            pass
-    return messages
+def read_mcap(mcap_cache: dict, path: Path, limit: int = 1000) -> dict:
+    if str(path) not in mcap_cache:
+        content = dict(
+            messages = [],
+            frames = [], 
+        )
+        with open(path, "rb") as f:
+            reader = NonSeekingReader(f)
+            try:
+                for schema, channel, message in reader.iter_messages():
+                    if len(content['messages']) + len(content['frames']) >= limit:
+                        break
+                    if channel.message_encoding == "json":
+                        try:
+                            data = json.loads(message.data.decode("utf-8"))
+                        except (UnicodeDecodeError, json.JSONDecodeError):
+                            continue
+                        content['messages'].append(McapMessage(
+                            topic=channel.topic,
+                            timestamp_us=message.log_time // 1000,
+                            data=data,
+                        ))
+                    if channel.topic == "rov/camera/frame":
+                        content['frames'].append(message)
+            except Exception as e:
+                    logger.exception(f"Error reading mcap: {e}")
+                    pass
+            mcap_cache[str(path)] = content
+            mcap_cache[str(path)]['frame_times'] = [frame.log_time for frame in content['frames']]
+    return mcap_cache[str(path)]
 
 
-def get_frame_bytes(path: Path, timestamp: int) -> bytes | None:
+def get_frame_bytes(mcap_cache: dict, path: Path, timestamp: int) -> bytes | None:
     target_ns = timestamp * 1000
-    window_ns = 500_000_000
-    best_frame = None
-    best_diff = None
-    with open(path, "rb") as f:
-        reader = make_reader(f)
-        try:
-            for schema, channel, message in reader.iter_messages(
-                topics=["rov/camera/frame"],
-                start_time=target_ns - window_ns,
-                end_time=target_ns + window_ns,
-            ):
-                diff = abs(message.log_time - target_ns)
-                if best_diff is None or diff < best_diff:
-                    best_diff = diff
-                    best_frame = message.data
-        except Exception as e:
-            logger.exception(f"Error reading frames from mcap: {e}")
-            pass
-    return best_frame
+    cached = mcap_cache[str(path)]
+    idx = bisect.bisect_left(cached['frame_times'], target_ns)
+    if idx >= len(cached['frames']):
+        return None
+    return cached['frames'][idx].data
 
 
 async def broadcast(ws_clients: set[WebSocket], payload: str) -> None:
@@ -143,6 +137,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.zenoh_session = session
     app.state.ws_clients = set()
     app.state.mcap_dir = Path(MCAP_DIR)
+    app.state.mcap_cache = dict()
     thread = threading.Thread(
         target=subscriber,
         args=(app, loop),
@@ -179,7 +174,8 @@ async def get_mcap_files(request: Request) -> list[str]:
     available_files = []
     for file_path in mcap_dir.glob("*.mcap"):
         try:
-            if read_mcap(file_path, 1):
+            is_valid_mcap = await asyncio.to_thread(read_mcap, {}, file_path, 1)
+            if is_valid_mcap["messages"]:
                 available_files.append(file_path.name)
         except Exception as e:
             logger.info(f"Cant read file {file_path.name}: {e}")
@@ -216,7 +212,8 @@ async def upload_mcap_file(request: Request, file: UploadFile = File(...)) -> Up
     file_path = mcap_dir / file.filename
     with open(file_path, "wb") as f:
         f.write(await file.read())
-    if not read_mcap(file_path, 1):
+    is_valid_mcap = await asyncio.to_thread(read_mcap, {}, file_path, 1)
+    if not is_valid_mcap["messages"]:
         file_path.unlink()
         raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail="Invalid or corrupted mcap file")
     return UploadResponse(filename=file.filename)
@@ -244,8 +241,8 @@ async def get_mcap_messages(request: Request, file_name: str, limit: int = Query
     mcap_dir = request.app.state.mcap_dir
     check_file(mcap_dir, file_name)
     try:
-        messages = await asyncio.to_thread(read_mcap, (mcap_dir / file_name).resolve(), limit)
-        return messages
+        content = await asyncio.to_thread(read_mcap, request.app.state.mcap_cache, (mcap_dir / file_name).resolve(), limit)
+        return content["messages"]
     except Exception as e:
         logger.exception(f"Cant read file {file_name}: {e}")
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=str(e))
@@ -261,7 +258,7 @@ async def get_frame(request: Request, file_name: str, timestamp_us: int = Query(
     mcap_dir = request.app.state.mcap_dir
     check_file(mcap_dir, file_name)
     try:
-        frame_bytes = await asyncio.to_thread(get_frame_bytes, (mcap_dir / file_name).resolve(), timestamp_us)
+        frame_bytes = await asyncio.to_thread(get_frame_bytes, request.app.state.mcap_cache, (mcap_dir / file_name).resolve(), timestamp_us)
         if frame_bytes is None:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND, detail="No frame found at the given timestamp")
