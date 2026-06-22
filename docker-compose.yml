@@ -76,6 +76,18 @@ services:
     networks: [rov-net]
     depends_on: [backend]
 
+  telemetry:
+    build:
+      context: .
+      dockerfile: telemetry/Dockerfile
+    restart: on-failure
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks: [rov-net]
+    depends_on: [frontend]
+
 networks:
   rov-net:
 

@@ -65,6 +65,16 @@ services:
     networks: [rov-net]
     depends_on: [backend]
 
+  telemetry:
+    image: ghcr.io/joaoluizthomazetti/rov-telemetry-telemetry:latest
+    restart: on-failure
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    environment:
+      - PYTHONUNBUFFERED=1
+    networks: [rov-net]
+    depends_on: [frontend]
+
 networks:
   rov-net:
 
