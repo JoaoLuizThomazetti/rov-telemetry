@@ -3,7 +3,6 @@ import cv2
 import zenoh
 import shutil
 import asyncio
-import time
 from pathlib import Path
 from av import VideoFrame
 from pydantic import BaseModel, Field
@@ -175,15 +174,8 @@ app = FastAPI(
     version="1.0.0",
     root_path="/vision",
 )
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-@app.middleware("http")
-async def log_requests(request, call_next):
-    start = time.time()
-    response = await call_next(request)
-    duration_ms = (time.time() - start) * 1000
-    logger.info(f"{request.method} {request.url.path} -> {response.status_code} ({duration_ms:.1f}ms)")
-    return response
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):

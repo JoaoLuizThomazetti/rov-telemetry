@@ -5,6 +5,7 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "helpers",
     "aiortc>=1.14.0",
     "asyncio>=4.0.0",
     "av>=16.1.0",
@@ -19,12 +20,13 @@ dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
     "ultralytics>=8.4.61",
-    "uvicorn>=0.48.0",
+    "uvicorn[standard]>=0.48.0",
 ]
 
 [tool.uv.sources]
 torch = { index = "pytorch-cpu" }
 torchvision = { index = "pytorch-cpu" }
+helpers = { path = "../helpers" }
 
 [[tool.uv.index]]
 name = "pytorch-cpu"
