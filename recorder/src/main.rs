@@ -109,7 +109,7 @@ async fn writer_task(mut rx: mpsc::Receiver<WriterMsg>) {
                     let channel_id = if let Some(&id) = channels.get(&topic) {
                         id
                     } else {
-                        let is_video = topic.starts_with("rov/video/");
+                        let is_video = topic.starts_with("rov/camera/");
                         let (schema_name, schema_encoding, schema_data, msg_encoding) = if is_video {
                             ("CompressedImage", "", b"".as_slice(), "jpeg")
                         } else {
