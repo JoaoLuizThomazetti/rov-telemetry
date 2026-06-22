@@ -13,6 +13,7 @@ import VideoReplay from "./components/VideoReplay.vue";
 import McapControls from "./components/McapControls.vue";
 import MavLinkCards from "./components/MavLinkCards.vue";
 import StreamControls from "./components/StreamControls.vue";
+import TelemetryCard from "./components/TelemetryCard.vue";
 import RecorderControls from "./components/RecorderControls.vue";
 import SimulatorControls from "./components/SimulatorControls.vue";
 import ArtificialHorizon from "./components/ArtificialHorizon.vue";
@@ -20,9 +21,9 @@ import ArtificialHorizon from "./components/ArtificialHorizon.vue";
 const { data: batteryQuery } = useZenohQuery<BatteryStatus>("rov/battery_status");
 
 const mode = ref<"live" | "replay">("live");
+const monitorOpen = ref<boolean>(false);
 const videoElement = ref<HTMLVideoElement | null>(null);
 const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-
 const ws = useWebSocket(`${protocol}//${window.location.host}/ws/live`);
 
 const { connected, stream } = useWebRTC();
@@ -66,11 +67,18 @@ watchEffect(() => {
         <span class="text-h5">ROV Telemetry</span>
       </div>
 
+      <v-btn icon class="mr-2" @click="monitorOpen = true">
+        <v-icon>mdi-monitor</v-icon>
+      </v-btn>
+
       <v-btn-toggle v-model="mode" mandatory class="ml-auto mr-4">
         <v-btn class="pa-3 pl-10 pr-10" value="live">Live</v-btn>
         <v-btn class="pa-3 pl-7 pr-7" value="replay">Replay</v-btn>
       </v-btn-toggle>
     </v-app-bar>
+
+    <!-- telemetry -->
+    <TelemetryCard v-model:open="monitorOpen" />
 
     <v-main>
       <v-container fluid class="pa-0" style="height: calc(100vh - 64px)">

@@ -1,19 +1,15 @@
 [project]
-name = "backend"
+name = "telemetry"
 version = "0.1.0"
 description = "Add your description here"
 readme = "README.md"
-requires-python = ">=3.11"
+requires-python = ">=3.10"
 dependencies = [
     "helpers",
-    "eclipse-zenoh>=1.9.0",
-    "fastapi>=0.136.3",
-    "flake8>=7.3.0",
-    "loguru>=0.7.3",
-    "mcap>=1.3.1",
-    "python-multipart>=0.0.29",
-    "uvicorn>=0.48.0",
-    "websockets>=16.0",
+    "docker>=7.1.0",
+    "fastapi>=0.138.0",
+    "psutil>=7.2.2",
+    "uvicorn[standard]>=0.49.0",
 ]
 
 [dependency-groups]

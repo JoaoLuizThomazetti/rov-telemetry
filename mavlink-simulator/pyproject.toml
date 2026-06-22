@@ -5,11 +5,15 @@ description = "Add your description here"
 readme = "README.md"
 requires-python = ">=3.10"
 dependencies = [
+    "helpers",
     "fastapi>=0.136.3",
     "httpx2>=2.3.0",
     "loguru>=0.7.3",
     "pymavlink>=2.4.49",
     "pyserial-asyncio>=0.6",
     "pytest>=9.0.3",
-    "uvicorn>=0.49.0",
+    "uvicorn[standard]>=0.49.0",
 ]
+
+[tool.uv.sources]
+helpers = { path = "../helpers" }
